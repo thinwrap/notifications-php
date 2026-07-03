@@ -1,0 +1,24 @@
+name: Lint Gates
+
+# The lint-gates (frontmatter validator, MIT license check, no-vendor-SDK
+# check, no-lifecycle-scripts) are folded INTO `ci.yml` as a dedicated
+# `lint-gates` job. This file is preserved as a stub for compatibility with
+# any branch-protection rule that still requires a check named `Lint Gates`.
+#
+# The canonical gates run on every PR via `ci.yml`'s `lint-gates` job. This
+# stub passes trivially; if you remove the branch-protection requirement,
+# this file may be deleted in v1.1.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  redirect:
+    name: lint-gates (see ci.yml lint-gates job)
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "lint-gates are wired in ci.yml. This stub is preserved for branch-protection name compatibility."

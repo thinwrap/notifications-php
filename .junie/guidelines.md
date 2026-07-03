@@ -1,0 +1,6 @@
+# See ../.ai/guidelines.md
+
+The single source of truth for AI agents working with `thinwrap/notifications` (PHP) is [../.ai/guidelines.md](../.ai/guidelines.md).
+See also [../.ai/ARCHITECTURE.md](../.ai/ARCHITECTURE.md) and [../.ai/CONVENTIONS.md](../.ai/CONVENTIONS.md).
+
+Install: `composer require thinwrap/notifications`.

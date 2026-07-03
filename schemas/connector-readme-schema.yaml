@@ -1,0 +1,85 @@
+# Per-connector README frontmatter schema — notifications scope (PHP mirror)
+# Authoritative source for the YAML frontmatter required at the top of every
+# `src/Providers/<Provider>/README.md`. See .ai/CONVENTIONS.md for the AI-agent
+# cheatsheet; this file is the canonical schema enforced by
+# `scripts/validate-frontmatter.php`.
+#
+# The notifications scope uses `channel` (not `operation` like location) and
+# tracks `novuProviderId`, `tier`, and the FCM/APNs-only
+# `tokenCacheHookSupported` flag. Each per-connector README has exactly one
+# frontmatter block at the top of the file.
+$schema: https://json-schema.org/draft/2020-12/schema
+type: object
+required:
+  - providerId
+  - channel
+  - auth
+  - endpoint
+  - versioning
+  - notes_passthrough
+properties:
+  providerId:
+    type: string
+    pattern: '^[a-z][a-z0-9-]*$'
+  channel:
+    type: string
+    enum: [email, sms, push, chat]
+  novuProviderId:
+    type: [string, "null"]
+  auth:
+    type: object
+    required: [method, tokenLifecycle]
+    properties:
+      method:
+        type: string
+        enum:
+          - bearer
+          - basic
+          - header
+          - webhook-url
+          - jwt-rs256
+          - jwt-es256
+          - aws-sigv4
+          - custom
+      tokenLifecycle:
+        type: string
+        enum: [opaque-static, opaque-rotates, jwt-signed, sigv4-derived]
+      tokenCacheHookSupported:
+        type: boolean
+    additionalProperties: false
+  endpoint:
+    type: object
+    required: [default]
+    properties:
+      default:
+        type: string
+        format: uri
+      regional:
+        type: array
+        items:
+          type: string
+    additionalProperties: false
+  regionalEndpoints:
+    type: array
+    items:
+      type: string
+  versioning:
+    type: object
+    required: [vendorApiVersion, lastVerified]
+    properties:
+      vendorApiVersion:
+        type: string
+      lastVerified:
+        type: string
+        format: date
+    additionalProperties: false
+  tier:
+    type: integer
+    enum: [1, 2]
+  rateLimitDocsUrl:
+    type: [string, "null"]
+  retryAfterSurfaced:
+    type: boolean
+  notes_passthrough:
+    type: string
+additionalProperties: false
