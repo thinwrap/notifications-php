@@ -1,5 +1,3 @@
-# MessageBird Sms Connector (PHP)
-
 ---
 providerId: messagebird
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward MessageBird-specific fields (e.g. `reference`, `validity`,
   `gateway`) via `_passthrough.body`.
 ---
+
+# MessageBird Sms Connector (PHP)
 
 ## Quick install
 

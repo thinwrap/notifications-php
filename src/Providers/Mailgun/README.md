@@ -1,5 +1,3 @@
-# Mailgun Email Connector (PHP)
-
 ---
 providerId: mailgun
 channel: email
@@ -23,6 +21,8 @@ notes_passthrough: |
   Forward Mailgun-specific form fields (e.g. `o:tag`, `o:tracking`,
   `v:my-var`) via `_passthrough.body`.
 ---
+
+# Mailgun Email Connector (PHP)
 
 ## Quick install
 

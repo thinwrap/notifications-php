@@ -1,5 +1,3 @@
-# Plivo Sms Connector (PHP)
-
 ---
 providerId: plivo
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Plivo-specific fields (e.g. `url`, `method`, `power_pack_uuid`)
   via `_passthrough.body`.
 ---
+
+# Plivo Sms Connector (PHP)
 
 ## Quick install
 

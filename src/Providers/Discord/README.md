@@ -1,5 +1,3 @@
-# Discord Chat Connector (PHP)
-
 ---
 providerId: discord
 channel: chat
@@ -22,6 +20,8 @@ notes_passthrough: |
   param is exposed via the `wait` narrowed-input field rather than
   always-on (parity divergence with TS, see harmonization audit).
 ---
+
+# Discord Chat Connector (PHP)
 
 ## Quick install
 

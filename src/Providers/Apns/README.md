@@ -1,5 +1,3 @@
-# Apple Push Notification service Push Connector (PHP)
-
 ---
 providerId: apns
 channel: push
@@ -24,6 +22,8 @@ notes_passthrough: |
   `aps.relevance-score`, custom headers) via `_passthrough.body` and
   `_passthrough.headers`.
 ---
+
+# Apple Push Notification service Push Connector (PHP)
 
 ## Quick install
 

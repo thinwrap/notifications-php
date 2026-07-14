@@ -1,5 +1,3 @@
-# Amazon SES Email Connector (PHP)
-
 ---
 providerId: ses
 channel: email
@@ -28,6 +26,8 @@ notes_passthrough: |
   Forward AWS-specific fields (e.g. `ConfigurationSetName`, `Tags`) via
   `_passthrough.body`.
 ---
+
+# Amazon SES Email Connector (PHP)
 
 ## Quick install
 

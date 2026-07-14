@@ -1,5 +1,3 @@
-# Telegram Chat Connector (PHP)
-
 ---
 providerId: telegram
 channel: chat
@@ -22,6 +20,8 @@ notes_passthrough: |
   Retry-After lives in JSON body at `parameters.retry_after` (int) on 429
   — `$e->cause['retryAfter']` is int, not string.
 ---
+
+# Telegram Chat Connector (PHP)
 
 ## Quick install
 

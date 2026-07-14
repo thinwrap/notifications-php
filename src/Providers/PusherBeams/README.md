@@ -1,5 +1,3 @@
-# Pusher Beams Push Connector (PHP)
-
 ---
 providerId: pusher-beams
 channel: push
@@ -22,6 +20,8 @@ notes_passthrough: |
   from the normalized input so a single send fans out across both
   platforms.
 ---
+
+# Pusher Beams Push Connector (PHP)
 
 ## Quick install
 

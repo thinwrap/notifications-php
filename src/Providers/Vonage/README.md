@@ -1,5 +1,3 @@
-# Vonage Sms Connector (PHP)
-
 ---
 providerId: vonage
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Vonage-specific form fields (e.g. `type`, `client-ref`,
   `callback`) via `_passthrough.body`.
 ---
+
+# Vonage Sms Connector (PHP)
 
 ## Quick install
 

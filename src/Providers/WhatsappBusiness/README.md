@@ -1,5 +1,3 @@
-# WhatsApp Business Chat Connector (PHP)
-
 ---
 providerId: whatsapp-business
 channel: chat
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Meta Cloud API-specific fields (e.g. `template`, `interactive`,
   `context`) via `_passthrough.body`.
 ---
+
+# WhatsApp Business Chat Connector (PHP)
 
 ## Quick install
 

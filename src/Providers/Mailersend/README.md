@@ -1,5 +1,3 @@
-# MailerSend Email Connector (PHP)
-
 ---
 providerId: mailersend
 channel: email
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward MailerSend-specific fields (e.g. `tags`, `personalization`,
   `variables`) via `_passthrough.body`.
 ---
+
+# MailerSend Email Connector (PHP)
 
 ## Quick install
 

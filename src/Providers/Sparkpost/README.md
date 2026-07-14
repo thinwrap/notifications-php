@@ -1,5 +1,3 @@
-# SparkPost Email Connector (PHP)
-
 ---
 providerId: sparkpost
 channel: email
@@ -24,6 +22,8 @@ notes_passthrough: |
   `recipients[].header_to` + `content.headers.CC` at the wire layer
   (outlier).
 ---
+
+# SparkPost Email Connector (PHP)
 
 ## Quick install
 

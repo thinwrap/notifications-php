@@ -1,5 +1,3 @@
-# Resend Email Connector (PHP)
-
 ---
 providerId: resend
 channel: email
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Resend-specific fields (e.g. `tags`, `headers`, `scheduled_at`)
   via `_passthrough.body`.
 ---
+
+# Resend Email Connector (PHP)
 
 ## Quick install
 

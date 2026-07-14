@@ -1,5 +1,3 @@
-# Infobip Sms Connector (PHP)
-
 ---
 providerId: infobip
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Infobip-specific fields (e.g. `flash`, `validityPeriod`,
   `notifyUrl`) via `_passthrough.body`.
 ---
+
+# Infobip Sms Connector (PHP)
 
 ## Quick install
 

@@ -1,5 +1,3 @@
-# Rocket.Chat Chat Connector (PHP)
-
 ---
 providerId: rocket-chat
 channel: chat
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Rocket.Chat-specific fields (e.g. `alias`, `emoji`,
   `attachments`) via `_passthrough.body`.
 ---
+
+# Rocket.Chat Chat Connector (PHP)
 
 ## Quick install
 

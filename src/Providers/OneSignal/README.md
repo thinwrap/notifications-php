@@ -1,5 +1,3 @@
-# OneSignal Push Connector (PHP)
-
 ---
 providerId: one-signal
 channel: push
@@ -21,6 +19,8 @@ notes_passthrough: |
   `send_after`) via `_passthrough.body`. Invalid recipient lists return
   `success: false` with `status: Rejected` (soft-reject, not exception).
 ---
+
+# OneSignal Push Connector (PHP)
 
 ## Quick install
 

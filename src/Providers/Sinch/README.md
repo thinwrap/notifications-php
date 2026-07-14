@@ -1,5 +1,3 @@
-# Sinch Sms Connector (PHP)
-
 ---
 providerId: sinch
 channel: sms
@@ -23,6 +21,8 @@ notes_passthrough: |
   Forward Sinch-specific fields (e.g. `delivery_report`, `flash_message`,
   `feedback_enabled`) via `_passthrough.body`.
 ---
+
+# Sinch Sms Connector (PHP)
 
 ## Quick install
 

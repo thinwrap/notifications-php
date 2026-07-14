@@ -1,5 +1,3 @@
-# Scaleway Transactional Email (TEM) Connector (PHP)
-
 ---
 providerId: scaleway
 channel: email
@@ -24,6 +22,8 @@ notes_passthrough: |
   `scheduled_at`) via `_passthrough['body']` — PHP consumers pre-shape
   snake_case keys at the call site.
 ---
+
+# Scaleway Transactional Email (TEM) Connector (PHP)
 
 ## Quick install
 

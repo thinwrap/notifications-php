@@ -1,5 +1,3 @@
-# D7 Networks Sms Connector (PHP)
-
 ---
 providerId: d7networks
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward D7-specific fields (e.g. `originator`, `tag`, `report_url`) via
   `_passthrough.body`.
 ---
+
+# D7 Networks Sms Connector (PHP)
 
 ## Quick install
 

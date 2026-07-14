@@ -1,5 +1,3 @@
-# SendGrid Email Connector (PHP)
-
 ---
 providerId: sendgrid
 channel: email
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward SendGrid v3-specific fields (e.g. `dynamic_template_data`,
   `mail_settings`, `tracking_settings`) via `_passthrough.body`.
 ---
+
+# SendGrid Email Connector (PHP)
 
 ## Quick install
 

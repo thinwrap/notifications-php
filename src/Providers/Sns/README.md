@@ -1,5 +1,3 @@
-# Amazon SNS Sms Connector (PHP)
-
 ---
 providerId: sns
 channel: sms
@@ -28,6 +26,8 @@ notes_passthrough: |
   Forward AWS-specific fields (e.g. `MessageAttributes`,
   `MessageDeduplicationId`) via `_passthrough.body`.
 ---
+
+# Amazon SNS Sms Connector (PHP)
 
 ## Quick install
 

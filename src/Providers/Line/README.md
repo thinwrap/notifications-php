@@ -1,5 +1,3 @@
-# LINE Chat Connector (PHP)
-
 ---
 providerId: line
 channel: chat
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward LINE Messaging-specific fields (e.g. `messages[].quickReply`,
   `messages[].sender`) via `_passthrough.body`.
 ---
+
+# LINE Chat Connector (PHP)
 
 ## Quick install
 

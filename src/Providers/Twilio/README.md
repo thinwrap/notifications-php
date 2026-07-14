@@ -1,5 +1,3 @@
-# Twilio Sms Connector (PHP)
-
 ---
 providerId: twilio
 channel: sms
@@ -29,6 +27,8 @@ notes_passthrough: |
   Forward Twilio-specific PascalCase fields (e.g. `MessagingServiceSid`,
   `StatusCallback`, `MaxPrice`) via `_passthrough.body`.
 ---
+
+# Twilio Sms Connector (PHP)
 
 ## Quick install
 

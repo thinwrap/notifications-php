@@ -1,5 +1,3 @@
-# TextMagic Sms Connector (PHP)
-
 ---
 providerId: textmagic
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward TextMagic-specific fields (e.g. `sendingTime`, `cutExtra`,
   `partsCount`) via `_passthrough.body`.
 ---
+
+# TextMagic Sms Connector (PHP)
 
 ## Quick install
 

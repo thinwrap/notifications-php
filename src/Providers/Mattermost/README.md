@@ -1,5 +1,3 @@
-# Mattermost Chat Connector (PHP)
-
 ---
 providerId: mattermost
 channel: chat
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Mattermost-specific fields (e.g. `username`, `icon_url`,
   `attachments`) via `_passthrough.body`.
 ---
+
+# Mattermost Chat Connector (PHP)
 
 ## Quick install
 

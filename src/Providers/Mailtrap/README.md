@@ -1,5 +1,3 @@
-# Mailtrap Email Connector (PHP)
-
 ---
 providerId: mailtrap
 channel: email
@@ -23,6 +21,8 @@ notes_passthrough: |
   Forward Mailtrap-specific fields (e.g. `category`, `custom_variables`)
   via `_passthrough.body`.
 ---
+
+# Mailtrap Email Connector (PHP)
 
 ## Quick install
 

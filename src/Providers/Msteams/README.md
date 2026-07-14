@@ -1,5 +1,3 @@
-# Microsoft Teams Chat Connector (PHP)
-
 ---
 providerId: ms-teams
 channel: chat
@@ -22,6 +20,8 @@ notes_passthrough: |
   is exactly `"1"` and throws on any other shape (stricter than TS
   sibling).
 ---
+
+# Microsoft Teams Chat Connector (PHP)
 
 ## Quick install
 

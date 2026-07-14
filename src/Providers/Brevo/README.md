@@ -1,5 +1,3 @@
-# Brevo Email Connector (PHP)
-
 ---
 providerId: brevo
 channel: email
@@ -21,6 +19,8 @@ notes_passthrough: |
   `_passthrough.body`. Attachment `contentId` is rejected at the wire
   layer (vendor does not support inline CIDs).
 ---
+
+# Brevo Email Connector (PHP)
 
 ## Quick install
 

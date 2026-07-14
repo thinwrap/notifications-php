@@ -1,5 +1,3 @@
-# WonderPush Push Connector (PHP)
-
 ---
 providerId: wonderpush
 channel: push
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward WonderPush-specific fields (e.g. `targetSegmentIds`,
   `notification`, `actions`) via `_passthrough.body`.
 ---
+
+# WonderPush Push Connector (PHP)
 
 ## Quick install
 

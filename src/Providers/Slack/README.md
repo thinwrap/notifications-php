@@ -1,5 +1,3 @@
-# Slack Chat Connector (PHP)
-
 ---
 providerId: slack
 channel: chat
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Slack-specific fields (e.g. `blocks`, `attachments`,
   `thread_ts`) via `_passthrough.body`.
 ---
+
+# Slack Chat Connector (PHP)
 
 ## Quick install
 

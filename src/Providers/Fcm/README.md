@@ -1,5 +1,3 @@
-# Firebase Cloud Messaging Push Connector (PHP)
-
 ---
 providerId: fcm
 channel: push
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward FCM v1-specific fields (e.g. `android.priority`,
   `webpush.fcm_options`, `apns.headers`) via `_passthrough.body`.
 ---
+
+# Firebase Cloud Messaging Push Connector (PHP)
 
 ## Quick install
 

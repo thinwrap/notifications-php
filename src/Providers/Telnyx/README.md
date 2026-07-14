@@ -1,5 +1,3 @@
-# Telnyx Sms Connector (PHP)
-
 ---
 providerId: telnyx
 channel: sms
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Telnyx-specific fields (e.g. `messaging_profile_id`,
   `webhook_url`, `auto_detect`) via `_passthrough.body`.
 ---
+
+# Telnyx Sms Connector (PHP)
 
 ## Quick install
 

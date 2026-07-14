@@ -1,5 +1,3 @@
-# Postmark Email Connector (PHP)
-
 ---
 providerId: postmark
 channel: email
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Postmark-specific fields (e.g. `TrackOpens`, `TrackLinks`,
   `Metadata`) via `_passthrough.body`.
 ---
+
+# Postmark Email Connector (PHP)
 
 ## Quick install
 

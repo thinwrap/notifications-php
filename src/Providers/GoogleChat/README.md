@@ -1,5 +1,3 @@
-# Google Chat Chat Connector (PHP)
-
 ---
 providerId: google-chat
 channel: chat
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Google Chat-specific fields (e.g. `cards`, `cardsV2`, `thread`)
   via `_passthrough.body`.
 ---
+
+# Google Chat Chat Connector (PHP)
 
 ## Quick install
 

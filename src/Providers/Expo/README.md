@@ -1,5 +1,3 @@
-# Expo Push Connector (PHP)
-
 ---
 providerId: expo
 channel: push
@@ -20,6 +18,8 @@ notes_passthrough: |
   Forward Expo-specific fields (e.g. `categoryId`, `mutableContent`,
   `channelId`) via `_passthrough.body`.
 ---
+
+# Expo Push Connector (PHP)
 
 ## Quick install
 

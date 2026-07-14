@@ -225,6 +225,12 @@ Required keys (top-level): `providerId`, `channel`, `auth`, `endpoint`, `version
 schema is at [`../schemas/connector-readme-schema.yaml`](../schemas/connector-readme-schema.yaml)
 and is enforced by `scripts/validate-frontmatter.php` in CI.
 
+The frontmatter block **must be the very first thing in the file** (opening `---` on
+line 1), with the `# Title` heading *below* the closing `---`. GitHub only renders a
+`---…---` block as frontmatter when it leads the file; place it under the title and
+GitHub leaks the raw YAML into the rendered body. The CI validator scans past a leading
+title to the first `---`, so it will **not** catch a misplaced block — keep it on top.
+
 ## PHP / lint / build
 
 - `composer.json` requires `php: ^8.2`. `declare(strict_types=1)` on every file.
