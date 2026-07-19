@@ -1,24 +1,3 @@
----
-providerId: slack
-channel: chat
-novuProviderId: slack
-auth:
-  method: webhook-url
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://hooks.slack.com/services/{T}/{B}/{X}
-versioning:
-  vendorApiVersion: "2024"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://api.slack.com/messaging/webhooks#rate_limiting
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Slack-specific fields (e.g. `blocks`, `attachments`,
-  `thread_ts`) via `_passthrough.body`.
----
-
 # Slack Chat Connector (PHP)
 
 ## Quick install

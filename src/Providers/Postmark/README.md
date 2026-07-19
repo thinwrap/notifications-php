@@ -1,24 +1,3 @@
----
-providerId: postmark
-channel: email
-novuProviderId: postmark
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.postmarkapp.com/email
-versioning:
-  vendorApiVersion: "2024-08-29"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://postmarkapp.com/developer/api/overview
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Postmark-specific fields (e.g. `TrackOpens`, `TrackLinks`,
-  `Metadata`) via `_passthrough.body`.
----
-
 # Postmark Email Connector (PHP)
 
 ## Quick install

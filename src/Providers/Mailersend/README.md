@@ -1,24 +1,3 @@
----
-providerId: mailersend
-channel: email
-novuProviderId: mailersend
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.mailersend.com/v1/email
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.mailersend.com/general.html#api-response
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward MailerSend-specific fields (e.g. `tags`, `personalization`,
-  `variables`) via `_passthrough.body`.
----
-
 # MailerSend Email Connector (PHP)
 
 ## Quick install

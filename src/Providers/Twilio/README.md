@@ -1,33 +1,3 @@
----
-providerId: twilio
-channel: sms
-novuProviderId: twilio
-auth:
-  method: basic
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.twilio.com/2010-04-01/Accounts/{accountSid}/Messages.json
-  regional:
-    - us1
-    - us2
-    - ie1
-    - au1
-    - br1
-    - de1
-    - jp1
-    - sg1
-versioning:
-  vendorApiVersion: "2010-04-01"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://www.twilio.com/docs/usage/api#rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Twilio-specific PascalCase fields (e.g. `MessagingServiceSid`,
-  `StatusCallback`, `MaxPrice`) via `_passthrough.body`.
----
-
 # Twilio Sms Connector (PHP)
 
 ## Quick install

@@ -1,26 +1,3 @@
----
-providerId: pusher-beams
-channel: push
-novuProviderId: pusher-beams
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://{instanceId}.pushnotifications.pusher.com/publish_api/v1/instances/{instanceId}/publishes
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://pusher.com/docs/beams/reference/publish-api/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Pusher Beams fields. **Outlier**: at the wire layer the
-  connector synthesizes both `apns.aps` and `fcm.notification` payloads
-  from the normalized input so a single send fans out across both
-  platforms.
----
-
 # Pusher Beams Push Connector (PHP)
 
 ## Quick install

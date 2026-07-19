@@ -211,7 +211,14 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
             $name = $body['name'];
         }
 
-        // Name-layer first when present (more specific than HTTP-layer).
+        // HTTP 401/403 is the authoritative auth signal and must win over the
+        // name-layer: Resend returns 401 with name `validation_error` for a
+        // bad/missing key, which would otherwise be misread as invalid_request.
+        if ($statusCode === 401 || $statusCode === 403) {
+            return ProviderCode::AuthFailed;
+        }
+
+        // Name-layer next when present (more specific than the remaining HTTP-layer).
         switch ($name) {
             case 'missing_api_key':
             case 'invalid_api_key':
@@ -228,9 +235,6 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
                     : ProviderCode::InvalidRequest;
         }
 
-        if ($statusCode === 401 || $statusCode === 403) {
-            return ProviderCode::AuthFailed;
-        }
         if ($statusCode === 429) {
             return ProviderCode::RateLimited;
         }

@@ -1,8 +1,10 @@
 # `thinwrap/notifications` (PHP) — Conventions
 
 Naming, file layout, and test patterns for AI agents adding or refactoring a connector.
-The per-connector README frontmatter schema authoritative source is
-[`../schemas/connector-readme-schema.yaml`](../schemas/connector-readme-schema.yaml).
+
+Each provider's per-connector `README.md` is plain Markdown — it opens directly with its
+`# Title` (no YAML metadata block). It is the connector's consumer-facing doc; keep it
+complete and at parity with the sibling-language libraries.
 
 ## Where files live in this repo
 
@@ -34,16 +36,14 @@ src/
     <Provider><Channel>Connector.php           # one connector per file
     <Provider>NarrowedInput.php                # optional, per-provider narrowed input
     <Provider>Region.php                       # optional, regional enum (e.g. TwilioRegion)
-    README.md                                  # per-connector README + YAML frontmatter
+    README.md                                  # per-connector consumer doc (plain Markdown)
 tests/
   Base/  DTO/  Enum/  Exception/  Facade/  Util/
   Providers/<Pascal>/<Provider><Channel>ConnectorTest.php
   Fixtures/RetryAfterFixtures.php              # PSR-7 Retry-After helpers
   Fixtures/TokenCacheFixtures.php              # TokenCacheHook spies
-schemas/
-  connector-readme-schema.yaml                 # frontmatter schema (CI-enforced)
 scripts/
-  validate-frontmatter.php                     # pure-PHP validator (no symfony/yaml)
+  # build/packaging + lint helpers
 .ai/
   guidelines.md  ARCHITECTURE.md  CONVENTIONS.md  TEST-FIXTURES.md
 .github/workflows/
@@ -81,7 +81,7 @@ enum NotificationProviderId: string
 | `src/Providers/<Pascal>/<Provider>Config.php` | yes | `final readonly class` config DTO |
 | `src/Providers/<Pascal>/<Provider>NarrowedInput.php` | optional | Per-provider narrowed input (e.g. `TwilioNarrowedInput extends SmsSendInput`) |
 | `src/Providers/<Pascal>/<Provider>Region.php` | optional | Regional cluster enum (e.g. `TwilioRegion: string`) |
-| `src/Providers/<Pascal>/README.md` | yes | Per-connector README + frontmatter |
+| `src/Providers/<Pascal>/README.md` | yes | Per-connector consumer doc (plain Markdown) |
 | `tests/Providers/<Pascal>/<Provider><Channel>ConnectorTest.php` | yes | PHPUnit spec |
 
 ## Readonly config classes (PHP 8.2+)
@@ -217,26 +217,10 @@ final class SendgridEmailConnectorTest extends TestCase
 
 Coverage ≥80%.
 
-## Per-connector README YAML frontmatter schema
-
-Required keys (top-level): `providerId`, `channel`, `auth`, `endpoint`, `versioning`,
-`notes_passthrough`. Optional: `novuProviderId`, `regionalEndpoints`, `tier`,
-`tokenCacheHookSupported`, `rateLimitDocsUrl`, `retryAfterSurfaced`. The authoritative
-schema is at [`../schemas/connector-readme-schema.yaml`](../schemas/connector-readme-schema.yaml)
-and is enforced by `scripts/validate-frontmatter.php` in CI.
-
-The frontmatter block **must be the very first thing in the file** (opening `---` on
-line 1), with the `# Title` heading *below* the closing `---`. GitHub only renders a
-`---…---` block as frontmatter when it leads the file; place it under the title and
-GitHub leaks the raw YAML into the rendered body. The CI validator scans past a leading
-title to the first `---`, so it will **not** catch a misplaced block — keep it on top.
-
 ## PHP / lint / build
 
 - `composer.json` requires `php: ^8.2`. `declare(strict_types=1)` on every file.
 - PHPStan level 8 — zero errors. Run: `composer analyse`.
 - PER-CS via PHP-CS-Fixer. Run: `composer cs-check` (read-only) or `composer cs-fix`.
 - PHPUnit 11 with `#[Test]` attributes. Run: `composer test`.
-- `composer validate-frontmatter` validates every `src/Providers/<Pascal>/README.md`
-  against `schemas/connector-readme-schema.yaml`.
 - No build step (no transpilation). Composer auto-loads via PSR-4 from `src/`.

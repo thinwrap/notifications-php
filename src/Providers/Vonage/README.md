@@ -1,24 +1,3 @@
----
-providerId: vonage
-channel: sms
-novuProviderId: nexmo
-auth:
-  method: basic
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://rest.nexmo.com/sms/json
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developer.vonage.com/messaging/sms/overview
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Vonage-specific form fields (e.g. `type`, `client-ref`,
-  `callback`) via `_passthrough.body`.
----
-
 # Vonage Sms Connector (PHP)
 
 ## Quick install

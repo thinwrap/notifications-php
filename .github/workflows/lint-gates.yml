@@ -1,7 +1,7 @@
 name: Lint Gates
 
-# The lint-gates (frontmatter validator, MIT license check, no-vendor-SDK
-# check, no-lifecycle-scripts) are folded INTO `ci.yml` as a dedicated
+# The lint-gates (MIT license check, no-vendor-SDK check, no-lifecycle-scripts)
+# are folded INTO `ci.yml` as a dedicated
 # `lint-gates` job. This file is preserved as a stub for compatibility with
 # any branch-protection rule that still requires a check named `Lint Gates`.
 #

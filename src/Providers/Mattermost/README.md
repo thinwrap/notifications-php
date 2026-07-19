@@ -1,24 +1,3 @@
----
-providerId: mattermost
-channel: chat
-novuProviderId: mattermost
-auth:
-  method: webhook-url
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://{server}/hooks/{token}
-versioning:
-  vendorApiVersion: "v4"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.mattermost.com/integrate/webhooks/incoming/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Mattermost-specific fields (e.g. `username`, `icon_url`,
-  `attachments`) via `_passthrough.body`.
----
-
 # Mattermost Chat Connector (PHP)
 
 ## Quick install

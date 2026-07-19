@@ -1,28 +1,3 @@
----
-providerId: scaleway
-channel: email
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.scaleway.com/transactional-email/v1alpha1/regions/fr-par/emails
-  regional:
-    - fr-par
-    - nl-ams
-    - pl-waw
-versioning:
-  vendorApiVersion: "v1alpha1"
-  lastVerified: 2026-06-02
-tier: 2
-rateLimitDocsUrl: https://www.scaleway.com/en/docs/transactional-email/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Scaleway TEM uses snake_case wire keys. Forward vendor-specific fields (e.g.
-  `scheduled_at`) via `_passthrough['body']` — PHP consumers pre-shape
-  snake_case keys at the call site.
----
-
 # Scaleway Transactional Email (TEM) Connector (PHP)
 
 ## Quick install

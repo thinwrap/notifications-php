@@ -1,32 +1,3 @@
----
-providerId: sns
-channel: sms
-novuProviderId: sns
-auth:
-  method: aws-sigv4
-  tokenLifecycle: sigv4-derived
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://sns.us-east-1.amazonaws.com/
-  regional:
-    - us-east-1
-    - us-west-2
-    - eu-west-1
-    - eu-central-1
-    - ap-south-1
-    - ap-southeast-1
-    - ap-northeast-1
-versioning:
-  vendorApiVersion: "2010-03-31"
-  lastVerified: 2026-05-18
-tier: 2
-rateLimitDocsUrl: https://docs.aws.amazon.com/sns/latest/dg/sms_limits.html
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward AWS-specific fields (e.g. `MessageAttributes`,
-  `MessageDeduplicationId`) via `_passthrough.body`.
----
-
 # Amazon SNS Sms Connector (PHP)
 
 ## Quick install

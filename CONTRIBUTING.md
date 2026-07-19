@@ -19,7 +19,6 @@ composer test                  # run the PHPUnit suite
 composer analyse               # PHPStan static analysis
 composer cs-check              # check code style (php-cs-fixer, dry-run)
 composer cs-fix                # auto-fix code style
-composer validate-frontmatter  # validate per-connector README frontmatter (35 providers)
 ```
 
 Run `composer test`, `composer analyse`, and `composer cs-check` before opening a

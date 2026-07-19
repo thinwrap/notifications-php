@@ -1,24 +1,3 @@
----
-providerId: google-chat
-channel: chat
-novuProviderId: null
-auth:
-  method: webhook-url
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://chat.googleapis.com/v1/spaces/{space}/messages?key={key}&token={token}
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.google.com/chat/api/guides/quotas
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Google Chat-specific fields (e.g. `cards`, `cardsV2`, `thread`)
-  via `_passthrough.body`.
----
-
 # Google Chat Chat Connector (PHP)
 
 ## Quick install

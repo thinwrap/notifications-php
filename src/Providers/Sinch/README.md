@@ -1,27 +1,3 @@
----
-providerId: sinch
-channel: sms
-novuProviderId: null
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://us.sms.api.sinch.com/xms/v1/{servicePlanId}/batches
-  regional:
-    - us
-    - eu
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.sinch.com/docs/sms/api-reference/sms/tag/Batches/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Sinch-specific fields (e.g. `delivery_report`, `flash_message`,
-  `feedback_enabled`) via `_passthrough.body`.
----
-
 # Sinch Sms Connector (PHP)
 
 ## Quick install

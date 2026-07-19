@@ -1,24 +1,3 @@
----
-providerId: sendgrid
-channel: email
-novuProviderId: sendgrid
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.sendgrid.com/v3/mail/send
-versioning:
-  vendorApiVersion: "v3"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://www.twilio.com/docs/sendgrid/api-reference/how-to-use-the-sendgrid-v3-api/rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward SendGrid v3-specific fields (e.g. `dynamic_template_data`,
-  `mail_settings`, `tracking_settings`) via `_passthrough.body`.
----
-
 # SendGrid Email Connector (PHP)
 
 ## Quick install

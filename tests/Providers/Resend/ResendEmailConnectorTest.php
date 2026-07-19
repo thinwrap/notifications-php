@@ -191,6 +191,9 @@ final class ResendEmailConnectorTest extends TestCase
     {
         yield '401' => [401, ['name' => 'missing_api_key', 'message' => 'missing'], [], ProviderCode::AuthFailed, null];
         yield '403' => [403, ['message' => 'forbidden'], [], ProviderCode::AuthFailed, null];
+        // Regression: Resend returns 401 with name `validation_error` for a bad/missing
+        // key; the 401 status must win over the name-layer → auth_failed (not invalid_request).
+        yield '401 validation_error (bad key)' => [401, ['name' => 'validation_error', 'message' => 'API key is invalid'], [], ProviderCode::AuthFailed, null];
         yield '422 recipient' => [422, ['name' => 'validation_error', 'message' => 'recipient malformed'], [], ProviderCode::InvalidRecipient, null];
         yield '422 other' => [422, ['name' => 'validation_error', 'message' => 'missing subject'], [], ProviderCode::InvalidRequest, null];
         yield '400' => [400, ['message' => 'bad'], [], ProviderCode::InvalidRequest, null];

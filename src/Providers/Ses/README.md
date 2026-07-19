@@ -1,32 +1,3 @@
----
-providerId: ses
-channel: email
-novuProviderId: ses
-auth:
-  method: aws-sigv4
-  tokenLifecycle: sigv4-derived
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://email.us-east-1.amazonaws.com/
-  regional:
-    - us-east-1
-    - us-west-2
-    - eu-west-1
-    - eu-central-1
-    - ap-south-1
-    - ap-southeast-1
-    - ap-northeast-1
-versioning:
-  vendorApiVersion: "SESv2-2019-09-27"
-  lastVerified: 2026-05-18
-tier: 2
-rateLimitDocsUrl: https://docs.aws.amazon.com/ses/latest/dg/manage-sending-quotas.html
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward AWS-specific fields (e.g. `ConfigurationSetName`, `Tags`) via
-  `_passthrough.body`.
----
-
 # Amazon SES Email Connector (PHP)
 
 ## Quick install

@@ -49,11 +49,9 @@ gives the equivalent of TypeScript's compile-time narrowing — mismatched
 | `src/Providers/<Pascal>/<Provider>Config.php` | per-provider config (readonly class) |
 | `src/Providers/<Pascal>/<Provider><Channel>Connector.php` | per-provider connector |
 | `src/Providers/<Pascal>/<Provider>NarrowedInput.php` | optional per-provider narrowed input |
-| `src/Providers/<Pascal>/README.md` | per-connector README + YAML frontmatter |
+| `src/Providers/<Pascal>/README.md` | per-connector consumer doc (plain Markdown) |
 | `tests/Providers/<Pascal>/` | per-connector PHPUnit specs |
 | `tests/Fixtures/` | PSR-7 fixture helpers (Retry-After, `TokenCacheHook` spies) |
-| `schemas/connector-readme-schema.yaml` | frontmatter schema |
-| `scripts/validate-frontmatter.php` | pure-PHP frontmatter validator |
 | `.github/workflows/ci.yml` | PHP 8.2/8.3/8.4 × Ubuntu matrix |
 | `.github/workflows/release.yml` | Packagist webhook + cosign-keyless signing |
 

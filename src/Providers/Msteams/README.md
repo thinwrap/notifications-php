@@ -1,26 +1,3 @@
----
-providerId: ms-teams
-channel: chat
-novuProviderId: msteams
-auth:
-  method: webhook-url
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://{tenant}.webhook.office.com/webhookb2/{id}/IncomingWebhook/{token}
-versioning:
-  vendorApiVersion: "2024"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Adaptive Card payloads (`type: "AdaptiveCard"`, `attachments`)
-  via `_passthrough.body`. PHP connector validates that the response body
-  is exactly `"1"` and throws on any other shape (stricter than TS
-  sibling).
----
-
 # Microsoft Teams Chat Connector (PHP)
 
 ## Quick install

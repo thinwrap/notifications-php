@@ -1,24 +1,3 @@
----
-providerId: messagebird
-channel: sms
-novuProviderId: messagebird
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://rest.messagebird.com/messages
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.messagebird.com/api/sms-messaging/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward MessageBird-specific fields (e.g. `reference`, `validity`,
-  `gateway`) via `_passthrough.body`.
----
-
 # MessageBird Sms Connector (PHP)
 
 ## Quick install

@@ -1,24 +1,3 @@
----
-providerId: resend
-channel: email
-novuProviderId: resend
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.resend.com/emails
-versioning:
-  vendorApiVersion: "2024-09-01"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://resend.com/docs/api-reference/rate-limit
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Resend-specific fields (e.g. `tags`, `headers`, `scheduled_at`)
-  via `_passthrough.body`.
----
-
 # Resend Email Connector (PHP)
 
 ## Quick install

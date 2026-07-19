@@ -1,28 +1,3 @@
----
-providerId: sparkpost
-channel: email
-novuProviderId: sparkpost
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.sparkpost.com/api/v1/transmissions
-  regional:
-    - us
-    - eu
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://www.sparkpost.com/docs/tech-resources/api-rate-limiting/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward SparkPost-specific fields. CC/BCC are translated to
-  `recipients[].header_to` + `content.headers.CC` at the wire layer
-  (outlier).
----
-
 # SparkPost Email Connector (PHP)
 
 ## Quick install

@@ -1,24 +1,3 @@
----
-providerId: d7networks
-channel: sms
-novuProviderId: null
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.d7networks.com/messages/v1/send
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://d7networks.com/docs/Messages/Send_Message/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward D7-specific fields (e.g. `originator`, `tag`, `report_url`) via
-  `_passthrough.body`.
----
-
 # D7 Networks Sms Connector (PHP)
 
 ## Quick install

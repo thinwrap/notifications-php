@@ -1,24 +1,3 @@
----
-providerId: line
-channel: chat
-novuProviderId: null
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.line.me/v2/bot/message/push
-versioning:
-  vendorApiVersion: "v2"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.line.biz/en/reference/messaging-api/#rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward LINE Messaging-specific fields (e.g. `messages[].quickReply`,
-  `messages[].sender`) via `_passthrough.body`.
----
-
 # LINE Chat Connector (PHP)
 
 ## Quick install

@@ -1,28 +1,3 @@
----
-providerId: apns
-channel: push
-novuProviderId: apns
-auth:
-  method: jwt-es256
-  tokenLifecycle: jwt-signed
-  tokenCacheHookSupported: true
-endpoint:
-  default: https://api.push.apple.com/3/device/{deviceToken}
-  regional:
-    - production
-    - sandbox
-versioning:
-  vendorApiVersion: "v3 (HTTP/2)"
-  lastVerified: 2026-05-18
-tier: 2
-rateLimitDocsUrl: https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward APNs-specific fields (e.g. `aps.thread-id`,
-  `aps.relevance-score`, custom headers) via `_passthrough.body` and
-  `_passthrough.headers`.
----
-
 # Apple Push Notification service Push Connector (PHP)
 
 ## Quick install

@@ -1,25 +1,3 @@
----
-providerId: brevo
-channel: email
-novuProviderId: sendinblue
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.brevo.com/v3/smtp/email
-versioning:
-  vendorApiVersion: "v3"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.brevo.com/docs/api-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Brevo-specific fields (e.g. `templateId`, `params`, `tags`) via
-  `_passthrough.body`. Attachment `contentId` is rejected at the wire
-  layer (vendor does not support inline CIDs).
----
-
 # Brevo Email Connector (PHP)
 
 ## Quick install

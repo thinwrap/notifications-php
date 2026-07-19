@@ -1,26 +1,3 @@
----
-providerId: discord
-channel: chat
-novuProviderId: discord
-auth:
-  method: webhook-url
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://discord.com/api/webhooks/{id}/{token}
-versioning:
-  vendorApiVersion: "v10"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://discord.com/developers/docs/topics/rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Discord-specific fields (e.g. `embeds`, `components`,
-  `allowed_mentions`) via `_passthrough.body`. The `?wait=true` query
-  param is exposed via the `wait` narrowed-input field rather than
-  always-on (parity divergence with TS, see harmonization audit).
----
-
 # Discord Chat Connector (PHP)
 
 ## Quick install

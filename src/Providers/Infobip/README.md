@@ -1,24 +1,3 @@
----
-providerId: infobip
-channel: sms
-novuProviderId: infobip-sms
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.infobip.com/sms/2/text/advanced
-versioning:
-  vendorApiVersion: "v2"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://www.infobip.com/docs/api
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Infobip-specific fields (e.g. `flash`, `validityPeriod`,
-  `notifyUrl`) via `_passthrough.body`.
----
-
 # Infobip Sms Connector (PHP)
 
 ## Quick install

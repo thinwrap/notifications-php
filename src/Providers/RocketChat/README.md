@@ -1,24 +1,3 @@
----
-providerId: rocket-chat
-channel: chat
-novuProviderId: rocket-chat
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://{server}/api/v1/chat.postMessage
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://docs.rocket.chat/reference/api/rest-api
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Rocket.Chat-specific fields (e.g. `alias`, `emoji`,
-  `attachments`) via `_passthrough.body`.
----
-
 # Rocket.Chat Chat Connector (PHP)
 
 ## Quick install

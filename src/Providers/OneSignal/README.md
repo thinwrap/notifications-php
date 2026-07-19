@@ -1,25 +1,3 @@
----
-providerId: one-signal
-channel: push
-novuProviderId: one-signal
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://onesignal.com/api/v1/notifications
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://documentation.onesignal.com/reference/rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward OneSignal-specific fields (e.g. `filters`, `included_segments`,
-  `send_after`) via `_passthrough.body`. Invalid recipient lists return
-  `success: false` with `status: Rejected` (soft-reject, not exception).
----
-
 # OneSignal Push Connector (PHP)
 
 ## Quick install

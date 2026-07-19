@@ -1,24 +1,3 @@
----
-providerId: plivo
-channel: sms
-novuProviderId: plivo
-auth:
-  method: basic
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.plivo.com/v1/Account/{authId}/Message/
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://www.plivo.com/docs/sms/api/overview
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Plivo-specific fields (e.g. `url`, `method`, `power_pack_uuid`)
-  via `_passthrough.body`.
----
-
 # Plivo Sms Connector (PHP)
 
 ## Quick install

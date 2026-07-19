@@ -1,24 +1,3 @@
----
-providerId: wonderpush
-channel: push
-novuProviderId: null
-auth:
-  method: basic
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://management-api.wonderpush.com/v1/deliveries
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://www.wonderpush.com/docs/reference/management-api/rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward WonderPush-specific fields (e.g. `targetSegmentIds`,
-  `notification`, `actions`) via `_passthrough.body`.
----
-
 # WonderPush Push Connector (PHP)
 
 ## Quick install

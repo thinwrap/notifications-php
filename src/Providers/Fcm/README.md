@@ -1,24 +1,3 @@
----
-providerId: fcm
-channel: push
-novuProviderId: fcm
-auth:
-  method: jwt-rs256
-  tokenLifecycle: jwt-signed
-  tokenCacheHookSupported: true
-endpoint:
-  default: https://fcm.googleapis.com/v1/projects/{projectId}/messages:send
-versioning:
-  vendorApiVersion: "v1"
-  lastVerified: 2026-05-18
-tier: 2
-rateLimitDocsUrl: https://firebase.google.com/docs/cloud-messaging/concept-options#rate-limiting
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward FCM v1-specific fields (e.g. `android.priority`,
-  `webpush.fcm_options`, `apns.headers`) via `_passthrough.body`.
----
-
 # Firebase Cloud Messaging Push Connector (PHP)
 
 ## Quick install

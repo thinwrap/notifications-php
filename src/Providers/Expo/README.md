@@ -1,24 +1,3 @@
----
-providerId: expo
-channel: push
-novuProviderId: expo
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://exp.host/--/api/v2/push/send
-versioning:
-  vendorApiVersion: "v2"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://docs.expo.dev/push-notifications/sending-notifications/#rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Expo-specific fields (e.g. `categoryId`, `mutableContent`,
-  `channelId`) via `_passthrough.body`.
----
-
 # Expo Push Connector (PHP)
 
 ## Quick install

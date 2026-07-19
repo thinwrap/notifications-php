@@ -12,7 +12,7 @@ documentation.
 
 - **guidelines.md** (this file) — entry point + the "add a connector" recipe.
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — the facade → dispatch → base model and the stateless-wrapper invariants every change must hold.
-- [`CONVENTIONS.md`](./CONVENTIONS.md) — naming, file/namespace layout, error mapping, `_passthrough`, per-connector README frontmatter.
+- [`CONVENTIONS.md`](./CONVENTIONS.md) — naming, file/namespace layout, error mapping, `_passthrough`, the per-connector README convention.
 - [`TEST-FIXTURES.md`](./TEST-FIXTURES.md) — shared PHPUnit fixtures (`Retry-After`, `TokenCacheHook`).
 
 ## The shape in one sentence
@@ -43,10 +43,9 @@ Copy [`src/Providers/Sendgrid/`](../src/Providers/Sendgrid) as your template. Na
    - `<Provider>Config.php` — `final readonly class` (auth field first; optional PSR-18 `$client`).
    - `<Provider><Channel>Connector.php` — `final class … extends BaseConnector`, `send(...)`, private `mapVendorError(...)`.
    - `<Provider>NarrowedInput.php` — only when the provider exposes sub-baseline fields (extends the channel input DTO).
-   - `README.md` — YAML frontmatter (schema: [`../schemas/connector-readme-schema.yaml`](../schemas/connector-readme-schema.yaml)) + body. **This** is the connector's consumer doc.
+   - `README.md` — plain Markdown that opens directly with its `# Title` (no YAML metadata block). **This** is the connector's consumer doc; keep it complete and at parity with the sibling-language libraries.
 3. **Dispatch** — add the `match` arm to the channel facade (`src/Email.php`, `src/Sms.php`, `src/Push.php`, or `src/Chat.php`).
 4. **Test** — `tests/Providers/<Provider>/<Provider><Channel>ConnectorTest.php`; PHPUnit with `#[Test]`, mock the PSR-18 client (`Http\Mock\Client` + `Nyholm\Psr7\Response`); reuse the `Retry-After` / `TokenCacheHook` fixtures (see TEST-FIXTURES).
-5. **Bump the expected provider count** in the frontmatter-validation CI step.
 
 ### Definition of done (the CI gates)
 
@@ -54,7 +53,6 @@ Copy [`src/Providers/Sendgrid/`](../src/Providers/Sendgrid) as your template. Na
 composer test                 # PHPUnit; ≥80% line-coverage gate
 composer analyse              # PHPStan level 8, zero errors
 composer cs-check             # PHP-CS-Fixer (PER-CS); composer cs-fix to apply
-composer validate-frontmatter # validates every connector README against the schema
 ```
 
 CI runs these on PHP 8.2 / 8.3 / 8.4, plus an offline import smoke (zero construct-time egress),

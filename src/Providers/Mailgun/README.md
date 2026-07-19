@@ -1,27 +1,3 @@
----
-providerId: mailgun
-channel: email
-novuProviderId: mailgun
-auth:
-  method: basic
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.mailgun.net/v3/{domain}/messages
-  regional:
-    - us
-    - eu
-versioning:
-  vendorApiVersion: "v3"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://documentation.mailgun.com/docs/mailgun/api-reference/intro/#rate-limit
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Mailgun-specific form fields (e.g. `o:tag`, `o:tracking`,
-  `v:my-var`) via `_passthrough.body`.
----
-
 # Mailgun Email Connector (PHP)
 
 ## Quick install

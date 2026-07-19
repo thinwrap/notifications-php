@@ -1,24 +1,3 @@
----
-providerId: textmagic
-channel: sms
-novuProviderId: null
-auth:
-  method: header
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://rest.textmagic.com/api/v2/messages
-versioning:
-  vendorApiVersion: "v2"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://docs.textmagic.com/
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward TextMagic-specific fields (e.g. `sendingTime`, `cutExtra`,
-  `partsCount`) via `_passthrough.body`.
----
-
 # TextMagic Sms Connector (PHP)
 
 ## Quick install

@@ -1,27 +1,3 @@
----
-providerId: mailtrap
-channel: email
-novuProviderId: mailtrap
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://send.api.mailtrap.io/api/send
-  regional:
-    - sandbox
-    - production
-versioning:
-  vendorApiVersion: "2024"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://api-docs.mailtrap.io/docs/mailtrap-api-docs/5tjdeg9545058-send-email
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Mailtrap-specific fields (e.g. `category`, `custom_variables`)
-  via `_passthrough.body`.
----
-
 # Mailtrap Email Connector (PHP)
 
 ## Quick install

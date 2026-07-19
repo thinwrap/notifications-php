@@ -1,26 +1,3 @@
----
-providerId: telegram
-channel: chat
-novuProviderId: null
-auth:
-  method: custom
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.telegram.org/bot{botToken}/sendMessage
-versioning:
-  vendorApiVersion: "Bot API 7.x"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Telegram-specific fields (e.g. `parse_mode`, `reply_markup`,
-  `disable_web_page_preview`) via `_passthrough.body`. **Outlier**:
-  Retry-After lives in JSON body at `parameters.retry_after` (int) on 429
-  — `$e->cause['retryAfter']` is int, not string.
----
-
 # Telegram Chat Connector (PHP)
 
 ## Quick install

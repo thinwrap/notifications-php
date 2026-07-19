@@ -1,24 +1,3 @@
----
-providerId: telnyx
-channel: sms
-novuProviderId: telnyx
-auth:
-  method: bearer
-  tokenLifecycle: opaque-static
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://api.telnyx.com/v2/messages
-versioning:
-  vendorApiVersion: "v2"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.telnyx.com/docs/messaging/messaging-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Telnyx-specific fields (e.g. `messaging_profile_id`,
-  `webhook_url`, `auto_detect`) via `_passthrough.body`.
----
-
 # Telnyx Sms Connector (PHP)
 
 ## Quick install

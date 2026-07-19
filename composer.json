@@ -30,7 +30,7 @@
         "stateless",
         "psr-18"
     ],
-    "homepage": "https://github.com/thinwrap/notifications-php",
+    "homepage": "https://thinwrap.dev",
     "support": {
         "issues": "https://github.com/thinwrap/notifications-php/issues",
         "source": "https://github.com/thinwrap/notifications-php"
@@ -73,8 +73,7 @@
         "cs-check": "php-cs-fixer fix --dry-run --diff",
         "cs-fix": "php-cs-fixer fix",
         "lint": "php-cs-fixer fix --dry-run --diff",
-        "fix": "php-cs-fixer fix",
-        "validate-frontmatter": "php scripts/validate-frontmatter.php --expected-providers 35"
+        "fix": "php-cs-fixer fix"
     },
     "config": {
         "sort-packages": true,

@@ -1,24 +1,3 @@
----
-providerId: whatsapp-business
-channel: chat
-novuProviderId: whatsapp-business
-auth:
-  method: bearer
-  tokenLifecycle: opaque-rotates
-  tokenCacheHookSupported: false
-endpoint:
-  default: https://graph.facebook.com/v18.0/{phoneNumberId}/messages
-versioning:
-  vendorApiVersion: "v18.0"
-  lastVerified: 2026-05-18
-tier: 1
-rateLimitDocsUrl: https://developers.facebook.com/docs/whatsapp/cloud-api/overview#rate-limits
-retryAfterSurfaced: true
-notes_passthrough: |
-  Forward Meta Cloud API-specific fields (e.g. `template`, `interactive`,
-  `context`) via `_passthrough.body`.
----
-
 # WhatsApp Business Chat Connector (PHP)
 
 ## Quick install
