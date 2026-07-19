@@ -134,4 +134,22 @@ final class FcmPushConnectorTest extends TestCase
             $this->assertSame(ProviderCode::AuthFailed, $err->providerCode);
         }
     }
+
+    public function testConfigMissingServiceAccountKeyThrowsInvalidRequest(): void
+    {
+        // A malformed service-account array (here: `project_id` omitted) must
+        // raise a clean typed InvalidRequest at construction — not a PHP
+        // undefined-key warning followed by a TypeError on property assignment.
+        try {
+            // @phpstan-ignore-next-line — intentionally malformed for the guard test.
+            new FcmConfig(serviceAccount: [
+                'client_email' => 'sa@proj-x.iam.gserviceaccount.com',
+                'private_key'  => "-----BEGIN PRIVATE KEY-----\nMOCK\n-----END PRIVATE KEY-----\n",
+            ]);
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
+            $this->assertStringContainsString('project_id', (string) $err->providerMessage);
+        }
+    }
 }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Thinwrap\Notifications\Providers\Fcm;
 
 use Thinwrap\Notifications\Contract\TokenCacheHook;
+use Thinwrap\Notifications\Enum\ProviderCode;
+use Thinwrap\Notifications\Exception\ConnectorError;
 
 /**
  * Firebase Cloud Messaging (FCM HTTP v1) configuration.
@@ -38,8 +40,32 @@ final readonly class FcmConfig
         public array $serviceAccount,
         public ?TokenCacheHook $tokenCache = null,
     ) {
-        $this->projectId = $serviceAccount['project_id'];
-        $this->clientEmail = $serviceAccount['client_email'];
-        $this->privateKey = $serviceAccount['private_key'];
+        // Validate at construction: a malformed service-account array (e.g. from
+        // a truncated JSON file) must raise a clean typed `InvalidRequest`
+        // rather than a PHP undefined-key warning + `TypeError` on the null →
+        // typed-string property assignment below.
+        $this->projectId = self::requireField($serviceAccount, 'project_id');
+        $this->clientEmail = self::requireField($serviceAccount, 'client_email');
+        $this->privateKey = self::requireField($serviceAccount, 'private_key');
+    }
+
+    /**
+     * Read a required service-account field, throwing `InvalidRequest` when it
+     * is missing, non-string, or empty.
+     *
+     * @param array<string,mixed> $serviceAccount
+     */
+    private static function requireField(array $serviceAccount, string $key): string
+    {
+        $value = $serviceAccount[$key] ?? null;
+        if (!is_string($value) || $value === '') {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: "FCM: service account is missing required field '{$key}'",
+                statusCode: 400,
+            );
+        }
+
+        return $value;
     }
 }

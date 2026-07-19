@@ -319,7 +319,14 @@ abstract class BaseConnector
         return str_replace(["\r", "\n"], '', $value);
     }
 
-    private function dispatch(RequestInterface $request): ResponseInterface
+    /**
+     * Send a fully-built PSR-7 request through the resolved PSR-18 client,
+     * translating any transport failure into the hardened `ConnectorError`
+     * below. `protected` so connectors that must build the request themselves
+     * (SES/SNS SigV4 sign exact bytes) still funnel transport errors through
+     * this single hardened path instead of re-implementing the catch.
+     */
+    protected function dispatch(RequestInterface $request): ResponseInterface
     {
         try {
             return $this->getClient()->sendRequest($request);

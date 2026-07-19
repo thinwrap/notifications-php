@@ -203,15 +203,11 @@ class SnsSmsConnector extends BaseConnector implements SmsConnectorInterface
             $request = $request->withHeader($name, $value);
         }
 
-        try {
-            $response = $this->getClient()->sendRequest($request);
-        } catch (\Psr\Http\Client\ClientExceptionInterface $err) {
-            throw new ConnectorError(
-                providerCode: ProviderCode::ProviderUnavailable,
-                providerMessage: $err->getMessage(),
-                cause: ['exception' => $err::class, 'message' => $err->getMessage()],
-            );
-        }
+        // Route through the hardened base `dispatch()` for parity with every
+        // other connector: a transport failure surfaces a generic message plus
+        // only the exception class — never `$err->getMessage()`, which for AWS
+        // can embed the signed request URL / credential material.
+        $response = $this->dispatch($request);
 
         $status = $response->getStatusCode();
         if ($status < 200 || $status >= 300) {

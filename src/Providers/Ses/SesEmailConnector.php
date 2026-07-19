@@ -277,7 +277,10 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         if ($input->text !== null && $input->text !== '') {
             $lines[] = '--' . $altBoundary;
             $lines[] = 'Content-Type: text/plain; charset=UTF-8';
-            $lines[] = 'Content-Transfer-Encoding: 7bit';
+            // 8bit (not 7bit): the body may carry non-ASCII UTF-8 octets
+            // (accents, emoji); declaring 7bit over an 8-bit body is a MIME
+            // encoding mismatch on the raw-MIME path.
+            $lines[] = 'Content-Transfer-Encoding: 8bit';
             $lines[] = '';
             $lines[] = $input->text;
             $lines[] = '';
@@ -285,7 +288,9 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         if ($input->html !== null && $input->html !== '') {
             $lines[] = '--' . $altBoundary;
             $lines[] = 'Content-Type: text/html; charset=UTF-8';
-            $lines[] = 'Content-Transfer-Encoding: 7bit';
+            // 8bit (not 7bit): see the text/plain part above — the HTML body may
+            // contain non-ASCII UTF-8 octets, so declare the encoding truthfully.
+            $lines[] = 'Content-Transfer-Encoding: 8bit';
             $lines[] = '';
             $lines[] = $input->html;
             $lines[] = '';
@@ -298,7 +303,15 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
                 ? (string) $attachment->contentType
                 : 'application/octet-stream';
             $filename = self::quoteMimeFilename($attachment->filename);
-            $encoded = base64_encode($this->normalizeAttachmentContent($attachment));
+            // Fold the base64 stream into 76-char lines (RFC 2045 §6.8) so no
+            // MIME line exceeds RFC 5322's 998-octet limit; an unwrapped blob
+            // >~748 bytes would make SES forward non-conformant MIME. The
+            // trailing CRLF chunk_split() appends is trimmed so the payload
+            // slots cleanly between the blank line and the next boundary.
+            $encoded = rtrim(
+                chunk_split(base64_encode($this->normalizeAttachmentContent($attachment)), 76, "\r\n"),
+                "\r\n",
+            );
 
             $lines[] = '--' . $boundary;
             $lines[] = 'Content-Type: ' . self::stripCrlf($contentType) . '; name=' . $filename;

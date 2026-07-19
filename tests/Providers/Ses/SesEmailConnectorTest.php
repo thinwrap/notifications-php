@@ -313,6 +313,88 @@ final class SesEmailConnectorTest extends TestCase
         }
     }
 
+    public function testLargeAttachmentBase64IsLineWrapped(): void
+    {
+        // An unwrapped base64 blob >~748 bytes would exceed RFC 5322's
+        // 998-octet line cap; the MIME builder must fold it into ≤76-char lines.
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"wrap-1"}'))
+        );
+        $connector = $this->buildConnector();
+
+        $content = str_repeat('A', 1000);
+        $attachment = new EmailAttachment(
+            filename: 'big.bin',
+            contentType: 'application/octet-stream',
+            content: $content,
+        );
+        $input = new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Big',
+            text: 'Body',
+            attachments: [$attachment],
+        );
+
+        $connector->send($input);
+
+        $request = $this->mockClient->getRequests()[0];
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
+        $this->assertNotFalse($rawMime);
+
+        // The flat, unwrapped base64 must NOT appear verbatim — it must be folded.
+        $flat = base64_encode($content);
+        $this->assertStringNotContainsString($flat, $rawMime);
+
+        // Scan the actual MIME lines: every base64 payload line ≤76 chars, >1 line.
+        $base64LineCount = 0;
+        $maxBase64LineLength = 0;
+        foreach (explode("\r\n", $rawMime) as $line) {
+            if ($line !== '' && strlen($line) >= 40 && preg_match('#^[A-Za-z0-9+/]+={0,2}$#', $line) === 1) {
+                $base64LineCount++;
+                $maxBase64LineLength = max($maxBase64LineLength, strlen($line));
+            }
+        }
+        $this->assertGreaterThan(1, $base64LineCount, 'base64 payload must span multiple folded lines');
+        $this->assertLessThanOrEqual(76, $maxBase64LineLength);
+    }
+
+    public function testNonAsciiBodyDeclares8bitNotBase64Or7bit(): void
+    {
+        // A custom header forces the raw-MIME path; the UTF-8 (8-bit) body means
+        // the text parts must declare `8bit`, never `7bit`.
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"utf-1"}'))
+        );
+        $connector = $this->buildConnector();
+
+        $input = new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Réservation',
+            text: 'café ☕',
+            html: '<p>café ☕</p>',
+            headers: ['X-Entity-Ref-Id' => 'abc'],
+        );
+
+        $connector->send($input);
+
+        $request = $this->mockClient->getRequests()[0];
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
+        $this->assertNotFalse($rawMime);
+
+        $this->assertStringContainsString('Content-Type: text/plain; charset=UTF-8', $rawMime);
+        $this->assertStringContainsString('Content-Type: text/html; charset=UTF-8', $rawMime);
+        $this->assertStringContainsString('Content-Transfer-Encoding: 8bit', $rawMime);
+        $this->assertStringNotContainsString('Content-Transfer-Encoding: 7bit', $rawMime);
+        // 8bit means the body bytes are emitted verbatim, not re-encoded.
+        $this->assertStringContainsString('café ☕', $rawMime);
+    }
+
     private function basicInput(): EmailSendInput
     {
         return new EmailSendInput(

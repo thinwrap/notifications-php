@@ -246,6 +246,39 @@ final class SnsSmsConnectorTest extends TestCase
         }
     }
 
+    public function testTransportFailureDoesNotLeakRawMessage(): void
+    {
+        // The raw PSR-18 client-exception message can embed the signed request
+        // URL (SigV4 query params are credential material). The hardened base
+        // `dispatch()` must surface only a generic message + the exception class.
+        $secret = 'https://sns.us-east-1.amazonaws.com/?X-Amz-Signature=deadbeefSECRET';
+        $this->mockClient->addException(
+            new class ($secret) extends \RuntimeException implements \Psr\Http\Client\ClientExceptionInterface {}
+        );
+        $connector = $this->buildConnector();
+
+        try {
+            $connector->send($this->basicInput());
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::ProviderUnavailable, $err->providerCode);
+            $this->assertSame('Upstream transport error', $err->providerMessage);
+            $this->assertStringNotContainsString($secret, (string) $err->providerMessage);
+
+            $encodedCause = json_encode($err->cause);
+            $this->assertNotFalse($encodedCause);
+            $this->assertStringNotContainsString($secret, $encodedCause);
+            $this->assertStringNotContainsString('SECRET', $encodedCause);
+
+            /** @var array{raw:array{exception:string}} $cause */
+            $cause = $err->cause;
+            $this->assertArrayHasKey('raw', $cause);
+            $this->assertArrayHasKey('exception', $cause['raw']);
+            // The leaky inline path exposed a top-level `message`; it must be gone.
+            $this->assertArrayNotHasKey('message', $cause);
+        }
+    }
+
     private function basicInput(): SmsSendInput
     {
         return new SmsSendInput(to: '+15551234567', body: 'hi');

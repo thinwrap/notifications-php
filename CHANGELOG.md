@@ -7,12 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-07-20
+
 ### Changed
 
 - **Per-connector READMEs** no longer carry a YAML frontmatter block — the
   metadata GitHub rendered as a table but nothing consumed. The frontmatter
   validator (`scripts/validate-frontmatter.php`), its schema, and the CI gate
   that ran it have been removed. Per-connector docs are now plain Markdown.
+
+### Fixed
+
+- **SES raw-MIME conformance** — attachment base64 is line-wrapped at 76
+  characters (RFC 5322, avoiding the 998-octet line limit) and the text/plain &
+  text/html parts declare `Content-Transfer-Encoding: 8bit` (was `7bit`) over
+  their UTF-8 bodies.
+- **FCM configuration** validates the service-account array and throws
+  `ConnectorError` (`InvalidRequest`) when `project_id` / `client_email` /
+  `private_key` are missing, instead of emitting a PHP warning followed by a
+  `TypeError`.
+
+### Security
+
+- **SNS** transport errors now route through the hardened `dispatch()` path, so
+  only the exception class — never the raw transport message — is surfaced on
+  `providerMessage` / `cause`, matching every other connector.
 
 ## [1.0.0] — 2026-06-04
 
