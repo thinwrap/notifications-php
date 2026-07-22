@@ -106,9 +106,6 @@ final class TextmagicSmsConnector extends BaseConnector implements SmsConnectorI
         }
 
         $url = self::ENDPOINT;
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostForm($url, $form, $mergedHeaders);
 

@@ -56,6 +56,15 @@ final class GoogleChatChatConnector extends BaseConnector implements ChatConnect
             );
         }
 
+        if (!str_starts_with(strtolower($this->config->webhookUrl), 'https://')) {
+            // The webhook URL IS the credential; refuse cleartext http.
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'Google Chat webhookUrl must be an https:// URL.',
+                statusCode: 400,
+            );
+        }
+
         $connectorBody = ['text' => $input->body];
         if ($input instanceof GoogleChatChatSendInput) {
             if ($input->cardsV2 !== null) {

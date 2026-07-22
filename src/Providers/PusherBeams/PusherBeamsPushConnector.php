@@ -68,9 +68,6 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
         $suffix = $narrowed !== null && $narrowed->interests !== null ? 'interests' : 'users';
 
         $url = "https://{$this->config->instanceId}.pushnotifications.pusher.com/publish_api/v1/instances/{$this->config->instanceId}/publishes/{$suffix}";
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();

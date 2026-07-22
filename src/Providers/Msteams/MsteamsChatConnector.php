@@ -49,6 +49,15 @@ final class MsteamsChatConnector extends BaseConnector implements ChatConnectorI
             );
         }
 
+        if (!str_starts_with(strtolower($this->config->webhookUrl), 'https://')) {
+            // The webhook URL IS the credential; refuse cleartext http.
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'MS Teams webhookUrl must be an https:// URL.',
+                statusCode: 400,
+            );
+        }
+
         $providedCard = $input instanceof MsteamsChatSendInput ? $input->card : null;
         $card = $providedCard ?? [
             'type'    => 'AdaptiveCard',
@@ -76,9 +85,6 @@ final class MsteamsChatConnector extends BaseConnector implements ChatConnectorI
         $mergedHeaders = $merged['headers'];
 
         $url = $this->config->webhookUrl;
-        if ($merged['query'] !== []) {
-            $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();
@@ -89,6 +95,17 @@ final class MsteamsChatConnector extends BaseConnector implements ChatConnectorI
         }
 
         $rawText = (string) $response->getBody();
+
+        // On failure (including throttling) Teams STILL returns HTTP 200, but
+        // with an error string in the body, e.g. "...Teams endpoint returned
+        // HTTP error 429 with ContextId...". Only the literal "1" means success.
+        if (trim($rawText) !== '1') {
+            $effectiveStatus = 502;
+            if (preg_match('/HTTP error (\d{3})/i', $rawText, $m) === 1) {
+                $effectiveStatus = (int) $m[1];
+            }
+            throw $this->mapVendorError($effectiveStatus, ['_text' => $rawText], $response);
+        }
 
         return new ChatSendResult(
             success: true,

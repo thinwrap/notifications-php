@@ -60,7 +60,7 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
             throw new ConnectorError(
                 providerCode: ProviderCode::InvalidRequest,
                 providerMessage: 'Mailtrap does not support tags',
-                statusCode: 0,
+                statusCode: null,
             );
         }
 
@@ -76,9 +76,6 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
             $input->_passthrough,
         );
 
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         /** @var array<string,mixed> $mergedBody */
         $mergedBody = $merged['body'];
@@ -203,14 +200,14 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
             throw new ConnectorError(
                 providerCode: ProviderCode::InvalidRequest,
                 providerMessage: 'Mailtrap sandbox mode requires inboxId in config',
-                statusCode: 0,
+                statusCode: null,
             );
         }
         if ($this->config->mode === MailtrapMode::Production && $this->config->inboxId !== null) {
             throw new ConnectorError(
                 providerCode: ProviderCode::InvalidRequest,
                 providerMessage: 'Mailtrap production mode forbids inboxId in config (it is sandbox-only)',
-                statusCode: 0,
+                statusCode: null,
             );
         }
     }

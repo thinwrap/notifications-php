@@ -29,8 +29,8 @@ use Thinwrap\Notifications\Util\Passthrough;
  * Wire keys are kebab-case (`client-ref`, `message-class`, `status-report-req`)
  * — written explicitly per casing-locality.
  *
- * Registered under both `vonage` (canonical) and `nexmo` (Novu legacy alias)
- * in the Sms facade by design.
+ * Registered under the single canonical id `vonage` in the Sms facade (there is
+ * no separate `nexmo` alias).
  */
 final class VonageSmsConnector extends BaseConnector implements SmsConnectorInterface
 {
@@ -144,9 +144,6 @@ final class VonageSmsConnector extends BaseConnector implements SmsConnectorInte
         }
 
         $url = self::ENDPOINT;
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostForm($url, $formOut, $mergedHeaders);
 

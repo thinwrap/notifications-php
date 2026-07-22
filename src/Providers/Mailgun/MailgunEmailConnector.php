@@ -89,9 +89,6 @@ final class MailgunEmailConnector extends BaseConnector implements EmailConnecto
             }
         }
 
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         // Capped, ordered tag list — emitted in BOTH transport paths.
         $tags = ($input->tags !== null && $input->tags !== [])

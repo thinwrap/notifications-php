@@ -75,7 +75,11 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
             : 'api.sandbox.push.apple.com';
         $url = "https://{$host}/3/device/" . rawurlencode($input->to);
 
-        $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
+        // APNs is HTTP/2-only. Pin the request protocol so a curl-backed PSR-18
+        // client negotiates h2 — Guzzle otherwise maps the PSR-7 default (1.1) to
+        // CURLOPT_HTTP_VERSION_1_1 and every push fails. The injected client must
+        // still be HTTP/2-capable (see this connector's README).
+        $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders, '2.0');
         $status = $response->getStatusCode();
 
         if ($status < 200 || $status >= 300) {
@@ -159,7 +163,19 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
 
         // ES256 over P-256 requires IEEE P1363 (`r || s`, 64 raw bytes); PHP's
         // openssl_sign emits DER-encoded `SEQUENCE(INTEGER r, INTEGER s)`.
-        $p1363 = self::derToP1363Es256($derSignature);
+        // A malformed DER (from a bad key/openssl output) must surface as a typed
+        // ConnectorError, not a raw \RuntimeException the consumer can't catch
+        // through the documented error type (mirrors the openssl_sign guard above).
+        try {
+            $p1363 = self::derToP1363Es256($derSignature);
+        } catch (\RuntimeException $e) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::AuthFailed,
+                providerMessage: 'APNs: could not convert the ES256 signature (' . $e->getMessage() . ')',
+                cause: ['raw' => ['exception' => $e::class], 'retryAfter' => null],
+                statusCode: null,
+            );
+        }
 
         return $unsigned . '.' . self::base64UrlEncode($p1363);
     }
@@ -275,7 +291,12 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
         $payload = ['aps' => $aps];
 
         if ($input->data !== null) {
+            // Guard the reserved `aps` key so consumer data can never clobber the
+            // constructed alert/badge/sound dict (use `_passthrough` to shape aps).
             foreach ($input->data as $k => $v) {
+                if ($k === 'aps') {
+                    continue;
+                }
                 $payload[$k] = $v;
             }
         }

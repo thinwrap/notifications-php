@@ -30,8 +30,9 @@ composer install
 composer test && composer analyse && composer cs-check
 ```
 
-PHP ≥8.2, `declare(strict_types=1)` on every file. **Zero runtime deps / no vendor SDKs** —
-consumers bring a PSR-18 client (resolved via `php-http/discovery`); SigV4 for SES/SNS is hand-rolled.
+PHP ≥8.2, `declare(strict_types=1)` on every file. **No vendor SDKs** — the only runtime
+dependency is `php-http/discovery`, which auto-wires a PSR-18 client when the consumer passes none;
+SigV4 for SES/SNS is hand-rolled.
 
 ## Add a connector
 
@@ -62,7 +63,7 @@ license + no-vendor-SDK + no-lifecycle-script gates.
 
 Full reasoning lives in [`ARCHITECTURE.md`](./ARCHITECTURE.md); the short list:
 
-- **Zero runtime deps / no vendor SDKs.**
+- **No vendor SDKs.** The only runtime dependency is `php-http/discovery` (auto-wires a PSR-18 client when none is injected).
 - **Stateless wrapper.** No caching, retries, idempotency keys, or telemetry. FCM/APNs sign fresh unless the consumer passes a `TokenCacheHook` (epoch in **seconds** — a deliberate divergence from the TS lib's milliseconds).
 - **≥90% baseline-coverage rule.** A field belongs on the base channel input only if ≥90% of that channel's providers support it; everything else goes to `_passthrough` (input) / `raw` (output) or a narrowed input class.
 - **Per-connector locality.** `mapVendorError` and outlier translations live inside `src/Providers/<Provider>/` — never in `BaseConnector`.

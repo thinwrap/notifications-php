@@ -52,6 +52,15 @@ final class DiscordChatConnector extends BaseConnector implements ChatConnectorI
             );
         }
 
+        if (!str_starts_with(strtolower($this->config->webhookUrl), 'https://')) {
+            // The webhook URL IS the credential; refuse cleartext http.
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'Discord webhookUrl must be an https:// URL.',
+                statusCode: 400,
+            );
+        }
+
         $connectorBody = ['content' => $input->body];
         $threadId = null;
         if ($input instanceof DiscordChatSendInput) {

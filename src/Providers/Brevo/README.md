@@ -19,24 +19,44 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 
 `BrevoConfig(apiKey: string)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
-API key from Brevo dashboard. Sent as `api-key: <key>` header. Vendor was formerly named Sendinblue — Novu still uses the `sendinblue` enum value (rebrand divergence).
+API key from Brevo dashboard. Sent as `api-key: <key>` header. (Brevo was formerly named Sendinblue.)
 
 ## Endpoint
 
 `https://api.brevo.com/v3/smtp/email`
 
-## Rate limits
+## Narrowed input augmentations
 
-See vendor docs: <https://developers.brevo.com/docs/api-limits>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+Standard email input applies and maps to Brevo's wire shape: `from` (+ config `senderName`) → `sender` (`{email, name?}`), `to` → `to` (`[{email}]`), `subject` → `subject`, `cc`/`bcc` → `cc`/`bcc` (`[{email}]`), `html`/`text` → `htmlContent`/`textContent`, `replyTo` → `replyTo` (`{email}`), `headers` → `headers` (flat map), `tags` → `tags`, and `attachments` → `attachment` (`{name, content}`, base64). `status` is `Sent`; `providerMessageId` comes from `messageId`.
 
-## Tier
+Brevo exposes no narrowed input class — provider-specific fields ride verbatim in `_passthrough['body']` (no casing transform; Brevo's wire shape is already camelCase): e.g. `templateId`, `params`, `messageVersions`, `scheduledAt`, `batchId`. **Pre-flight guard:** any attachment with a `contentId` raises `ConnectorError(InvalidRequest)` before any HTTP call — Brevo's `/v3/smtp/email` has no inline cid mechanism.
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+## Error mapping
 
-## `_passthrough` example
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 402 / 403 | (any) | `AuthFailed` |
+| 429 | (any) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| 400 | `message` matches `recipient` / `to[` / `email address` / `sender` | `InvalidRecipient` |
+| 400 | (other) | `InvalidRequest` |
+| 404 | (any) | `InvalidRequest` |
+| — | (unmatched) | `Unknown` |
+
+The `message` is read from the JSON error body and drives the 400 refinement before the generic `InvalidRequest` fallback applies.
+
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward Brevo-specific fields (e.g. `templateId`, `params`, `tags`) via `_passthrough.body`. Attachment `contentId` is rejected at the wire layer (vendor does not support inline CIDs).
+
+## Vendor docs
+
+- API reference: <https://developers.brevo.com/reference/send-transac-email>
+- Templates: <https://developers.brevo.com/docs/send-a-transactional-email>
+- Rate limits: <https://developers.brevo.com/docs/api-limits>

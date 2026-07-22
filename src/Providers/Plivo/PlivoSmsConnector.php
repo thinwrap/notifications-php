@@ -107,9 +107,6 @@ final class PlivoSmsConnector extends BaseConnector implements SmsConnectorInter
         $mergedHeaders = $merged['headers'];
 
         $url = "https://api.plivo.com/v1/Account/{$this->config->authId}/Message/";
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
 

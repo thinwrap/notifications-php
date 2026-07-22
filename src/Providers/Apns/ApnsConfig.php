@@ -7,11 +7,12 @@ namespace Thinwrap\Notifications\Providers\Apns;
 use Thinwrap\Notifications\Contract\TokenCacheHook;
 
 /**
- * Stub config for Apple Push Notification service. Real shape lands in
- * a later release.
+ * Configuration for the Apple Push Notification service (APNs) connector.
  *
- * Token-based auth (preferred): supply `keyId`, `teamId`, `bundleId`, and
- * `privateKey` (P8 PEM). Optional `tokenCache` hook amortizes the JWT
+ * Token-based auth (ES256 JWT): supply `keyId`, `teamId`, `bundleId`, and
+ * `privateKey` (the `.p8` EC P-256 PEM). `production` selects the
+ * `api.push.apple.com` host (default) vs the `api.sandbox.push.apple.com`
+ * sandbox when `false`. Optional `tokenCache` hook amortizes the JWT
  * signing — see `TokenCacheHook` contract.
  */
 final readonly class ApnsConfig

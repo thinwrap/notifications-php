@@ -37,9 +37,8 @@ use Thinwrap\Notifications\Providers\Vonage\VonageSmsConnector;
 /**
  * Unified SMS facade. Mirrors TS `Sms<P>` (notifications-ts/src/facades/sms.facade.ts).
  *
- * No provider aliases are carried at the first public release: the Novu
- * `nexmo` alias is NOT supported — `Vonage` is the single canonical id for the
- * Vonage/Nexmo provider, matching TS.
+ * No provider aliases are carried: `Vonage` is the single canonical id for the
+ * Vonage (formerly Nexmo) provider; there is no separate `nexmo` id.
  *
  * Non-SMS provider ids raise `ConnectorError(invalid_request)`.
  */

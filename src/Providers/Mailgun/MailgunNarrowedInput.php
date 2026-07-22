@@ -10,7 +10,11 @@ use Thinwrap\Notifications\DTO\Email\EmailSendInput;
 /**
  * Mailgun-specific narrowed input. Captures Mailgun-only form options below
  * the ≥90% baseline per the ≥90%-of-providers baseline rule.
- * Connector hand-maps camelCase fields to `o:` / `v:` / `t:` wire keys.
+ *
+ * At v1.0 these fields are NOT auto-mapped by the connector; supply them via
+ * `_passthrough.body` using Mailgun's `o:` / `v:` / `t:` wire keys (e.g.
+ * `o:tracking`, `v:my-var`, `t:text`). Promotion to first-class mapping is
+ * deferred to v1.1.
  */
 final readonly class MailgunNarrowedInput extends EmailSendInput
 {

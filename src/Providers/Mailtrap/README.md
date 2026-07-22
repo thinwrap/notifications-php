@@ -17,9 +17,9 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 
 ## Configuration
 
-`MailtrapConfig(apiToken: string, sandbox: bool = false, inboxId: ?int = null)`
+`MailtrapConfig(apiToken: string, mode: MailtrapMode, inboxId: ?string = null, from: ?string = null, senderName: ?string = null)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,20 +27,34 @@ API token from Mailtrap dashboard. Sent as `Authorization: Bearer <token>`. Sand
 
 ## Endpoint
 
-`https://send.api.mailtrap.io/api/send`
+`https://send.api.mailtrap.io/api/send` (production). In sandbox mode the endpoint is `https://sandbox.api.mailtrap.io/api/send/{inboxId}`. JSON request body. The mode is validated at construction time (sandbox requires `inboxId`; production forbids it).
 
-## Regional endpoints
+## Narrowed input augmentations
 
-`sandbox`, `production`
+Standard email input applies and maps to Mailtrap's wire shape: `from` (+ config `senderName`) → `from` (`{email, name?}`), `to` → `to` (`[{email}]`), `subject` → `subject`, `cc`/`bcc` → `cc`/`bcc` (`[{email}]`), `replyTo` → `reply_to` (a single `{email}` object), `html`/`text` → `html`/`text`, `headers` → `headers` (flat map), and `attachments` → `attachments` (`{filename, content, type?}`, base64; a `contentId` adds `content_id` + `disposition: "inline"`). `status` is `Sent`; `providerMessageId` comes from `message_ids[0]`. A non-empty `tags` is **rejected pre-flight** with `ConnectorError(InvalidRequest)` — Mailtrap has no tags at v1.0 (use `_passthrough['body']['category']`).
 
-## Rate limits
+Provider-specific fields ride in `_passthrough['body']` in Mailtrap's snake_case wire form (written directly — no PHP-side casing transform): e.g. `template_uuid`, `template_variables`, `custom_variables`, `category`.
 
-See vendor docs: <https://api-docs.mailtrap.io/docs/mailtrap-api-docs/5tjdeg9545058-send-email>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+## Error mapping
 
-## Tier
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 403 | (any) | `AuthFailed` |
+| 429 | (any) | `RateLimited` |
+| ≥500 | (any) | `ProviderUnavailable` |
+| 422 / 400 | any `errors[]` entry matches `recipient` / `email` / `to ` / `from address` | `InvalidRecipient` |
+| 422 / 400 | (other) | `InvalidRequest` |
+| — | (unmatched) | `Unknown` |
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+Vendor error strings from `errors[]` are joined into `$e->providerMessage` and preserved on `$e->cause['raw']`.
 
-## `_passthrough` example
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward Mailtrap-specific fields (e.g. `category`, `custom_variables`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: <https://docs.mailtrap.io/developers>
+- Sandbox guide: <https://docs.mailtrap.io/email-sandbox/setup/sandbox-api-integration>

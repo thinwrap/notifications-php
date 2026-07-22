@@ -54,9 +54,6 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
         );
 
         $url = self::ENDPOINT;
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         /** @var array<string,mixed> $body */
         $body = $merged['body'];

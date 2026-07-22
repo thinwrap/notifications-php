@@ -11,8 +11,8 @@ namespace Thinwrap\Notifications\Providers\Vonage;
  * one of the few wrapped SMS providers that auths via form fields instead of
  * HTTP headers. `$from` is optional at config level; can be supplied per-call.
  *
- * The Novu `nexmo` alias is TS-only; PHP has no `Nexmo` provider id,
- * so this config backs `VonageSmsConnector` under the single `vonage` id.
+ * There is no `nexmo` provider id; this config backs `VonageSmsConnector` under
+ * the single canonical `vonage` id.
  */
 final readonly class VonageConfig
 {

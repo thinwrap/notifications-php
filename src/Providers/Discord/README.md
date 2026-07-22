@@ -19,7 +19,7 @@ $result = $chat->send(new ChatSendInput(to: null, body: 'Hello, world!'));
 
 `DiscordConfig(webhookUrl: string)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,16 +27,31 @@ Webhook URL from a Discord channel's "Integrations" → "Webhooks". URL itself i
 
 ## Endpoint
 
-`https://discord.com/api/webhooks/{id}/{token}`
+`https://discord.com/api/webhooks/{id}/{token}` — the webhook URL is the endpoint (and the credential). The connector always appends `?wait=true` so Discord returns the created message ID in the response body, and `?thread_id=<id>` when `threadId` is set.
 
-## Rate limits
+## Narrowed input augmentations
 
-See vendor docs: <https://discord.com/developers/docs/topics/rate-limits>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+Standard chat input — `body` is the message content; `to` is `null` (the webhook URL targets the channel). `DiscordChatSendInput` extends `ChatSendInput` with below-baseline Discord fields: `embeds`, `components`, `username`, `avatarUrl` (→ `avatar_url`), `tts`, `flags`, `allowedMentions` (→ `allowed_mentions`), `threadName` (→ `thread_name`), and `threadId` (→ `?thread_id` query param). Further webhook fields go through `_passthrough.body`.
 
-## Tier
+## Error mapping
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 403 / 404 | (revoked/invalid webhook) | `AuthFailed` |
+| 400 | (any) | `InvalidRequest` |
+| 429 | `retry_after` in body | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| — | (other) | `Unknown` |
 
-## `_passthrough` example
+An empty or non-`https://` `webhookUrl` raises `InvalidRequest` (400) locally before dispatch.
 
-Forward Discord-specific fields (e.g. `embeds`, `components`, `allowed_mentions`) via `_passthrough.body`. The `?wait=true` query param is exposed via the `wait` narrowed-input field rather than always-on (parity divergence with TS, see harmonization audit).
+Discord emits a retry-after signal on two channels: the body `retry_after` (seconds, float) takes precedence; the header `Retry-After` (historically milliseconds) is used as a heuristic fallback (values > 1000 are treated as ms). Parsed seconds land on `$e->cause['retryAfterSeconds']` (raw body value on `$e->cause['retryAfterBody']`, raw header on `$e->cause['retryAfter']`) and are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
+
+Forward Discord-specific fields (e.g. `embeds`, `components`, `allowed_mentions`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: <https://discord.com/developers/docs/resources/webhook#execute-webhook>
+- Rate limits: <https://discord.com/developers/docs/topics/rate-limits>

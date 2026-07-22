@@ -139,7 +139,7 @@ abstract class BaseConnector
      * @param array<string, mixed> $body
      * @param array<string, string> $headers
      */
-    protected function sendPostJson(string $url, array $body, array $headers = []): ResponseInterface
+    protected function sendPostJson(string $url, array $body, array $headers = [], ?string $protocolVersion = null): ResponseInterface
     {
         try {
             $serialized = json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
@@ -154,7 +154,7 @@ abstract class BaseConnector
             );
         }
 
-        return $this->sendPostJsonRaw($url, $serialized, $headers);
+        return $this->sendPostJsonRaw($url, $serialized, $headers, $protocolVersion);
     }
 
     /**
@@ -162,13 +162,21 @@ abstract class BaseConnector
      * connector signs the exact bytes of the request payload and `sendPostJson`
      * re-encoding would invalidate the signature.
      *
+     * `$protocolVersion` (e.g. `'2.0'`) pins the PSR-7 request's HTTP version when
+     * the endpoint mandates a specific protocol (APNs is HTTP/2-only); `null`
+     * leaves the PSR-7 default (`1.1`).
+     *
      * @param array<string, string> $headers
      */
-    protected function sendPostJsonRaw(string $url, string $rawJsonBody, array $headers = []): ResponseInterface
+    protected function sendPostJsonRaw(string $url, string $rawJsonBody, array $headers = [], ?string $protocolVersion = null): ResponseInterface
     {
         $request = $this->getRequestFactory()
             ->createRequest('POST', $url)
             ->withBody($this->getStreamFactory()->createStream($rawJsonBody));
+
+        if ($protocolVersion !== null) {
+            $request = $request->withProtocolVersion($protocolVersion);
+        }
 
         $finalHeaders = array_merge(
             ['Content-Type' => 'application/json'],

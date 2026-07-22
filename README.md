@@ -230,12 +230,12 @@ matching the built-in connectors.
 - PHP 8.2 minimum; CI matrix runs on **8.2, 8.3, and 8.4** (Linux only at v1.0).
 - PSR-18 HTTP client is BYO — `php-http/discovery` auto-detects Guzzle, Symfony
   HttpClient, Buzz, etc., when no `$client` is passed to the facade constructor.
-- Zero runtime dependencies beyond `psr/http-client` + `psr/http-factory` +
-  `psr/http-message` + `php-http/discovery`.
+- No vendor SDKs. The only runtime dependency is `php-http/discovery` (which
+  auto-wires a PSR-18 client when none is injected); `psr/http-client` +
+  `psr/http-factory` + `psr/http-message` are interface-only packages.
 - 35 providers across 4 channels — same normalized facade surface as the TypeScript
-  sibling `@thinwrap/notifications`. Novu drop-in compatibility (`IEmailProvider` /
-  `ISmsProvider` / `IPushProvider` / `IChatProvider`) is a TypeScript-only feature;
-  the PHP package does not implement Novu's provider interfaces.
+  sibling `@thinwrap/notifications`. The PHP package exposes only the modern
+  `send()` surface (no legacy brownfield provider interfaces).
 
 ## Per-connector documentation
 

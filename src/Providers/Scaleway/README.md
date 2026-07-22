@@ -32,6 +32,8 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 | `senderName` | `?string` | no | Composed into `from.name` |
 | `region` | `?ScalewayRegion` | no | Default `FrPar`; interpolated into the endpoint **path** |
 
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
+
 ## Auth setup
 
 Generate an API key (Access key + Secret key) under Scaleway IAM. Only the
@@ -41,55 +43,38 @@ Generate an API key (Access key + Secret key) under Scaleway IAM. Only the
 
 `POST https://api.scaleway.com/transactional-email/v1alpha1/regions/{region}/emails`
 
-The region is part of the URL path (not a host swap).
+The region is part of the URL path (not a host swap); it defaults to `fr-par` (valid `fr-par`, `nl-ams`, `pl-waw`).
 
-## Wire mapping
+## Narrowed input augmentations
 
-| Thinwrap input | Scaleway wire field |
-|---|---|
-| `from` / `config->from` (+ `senderName`) | `from: { email, name? }` |
-| `to` | `to: [{ email }]` |
-| `cc` / `bcc` | `cc` / `bcc: [{ email }]` |
-| `subject` / `text` / `html` | `subject` / `text` / `html` |
-| `config->projectId` | `project_id` |
-| `headers` | `additional_headers: [{ key, value }]` |
-| `replyTo` | folded into `additional_headers` as `Reply-To` |
-| `attachments` | `attachments: [{ name, type, content(base64) }]` |
+The wire body is snake_case. `from`/`config->from` (+ `config->senderName`) → `from` (`{email, name?}`); `to` → `to` (`[{email}]`); `subject` → `subject`; `config->projectId` → `project_id`; `cc`/`bcc` → `cc`/`bcc` (`[{email}]`); `text`/`html` → `text`/`html`; `headers` → `additional_headers` (`[{key, value}]`); `replyTo` is folded into `additional_headers` as a `Reply-To` entry (no first-class field); `attachments` → `attachments` (`{name, type, content` (base64)`}`, with an empty `contentType` defaulting to `application/octet-stream` — Scaleway requires a `type` on every attachment). On success `status` is `Queued` (Scaleway accepts for delivery asynchronously, returning `{emails: [{id, message_id, status: "new"}]}`) and `providerMessageId` comes from `emails[0].message_id`, falling back to `emails[0].id`.
 
-### Graceful degradation
+**Graceful degradation** (per the ≥90% baseline rule, silently dropped — no error, no warning): `tags` has no Scaleway field at v1.0; attachment `contentId` has no inline-image field (the file is still sent as a normal attachment).
 
-Per baseline-coverage discipline, fields with no Scaleway equivalent at v1.0 are
-silently dropped (no error, no warning):
+`ScalewayNarrowedInput` extends `EmailSendInput` but adds **no new fields** — Scaleway has no first-class fields beyond the baseline at v1.0; it exists only for symmetry with the other connectors.
 
-- **`tags`** — Scaleway TEM has no tags field; dropped.
-- **attachment `contentId`** — no inline-image field; dropped (still sent as a
-  normal attachment).
-
-Attachments without a `contentType` default to `application/octet-stream`
-(Scaleway requires a `type` on every attachment).
+Any further Scaleway-specific fields go via `_passthrough['body']`, which merges verbatim. Unlike the TS/Go siblings, the PHP connector does **not** apply a camelCase→snake_case transform on `_passthrough` (no `CasingTransform` utility in the bootstrap) — supply the exact snake_case wire keys directly (e.g. `scheduled_at`).
 
 ## Error mapping
 
-| Vendor HTTP | `ProviderCode` |
-|---|---|
-| 401 / 403 | `AuthFailed` |
-| 400 / 404 / 422 | `InvalidRequest` |
-| 429 | `RateLimited` |
-| 5xx | `ProviderUnavailable` |
-| transport failure | `ProviderUnavailable` |
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 403 | (any) | `AuthFailed` |
+| 429 | (any) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| other 4xx (400 / 404 / 422 / …) | (any) | `InvalidRequest` |
+| — | (unmatched) | `Unknown` |
 
-`Retry-After` is surfaced in `ConnectorError->providerMessage` and on
-`cause['retryAfter']` (raw) / `cause['retryAfterSeconds']` (parsed). There is no
-top-level `retryAfterSeconds` field — retry is consumer policy.
+Scaleway has no body-level error-code disambiguator; HTTP status is the sole signal. The vendor `message` (or `errors[0].message`) is read defensively for `$e->providerMessage`.
 
-## Success mapping
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
 
-A 2xx response (`{ emails: [{ id, message_id, status: "new" }] }`) maps to
-`EmailSendResult(success: true, status: EmailStatus::Queued, providerMessageId: emails[0].message_id)`
-— Scaleway accepts for delivery asynchronously, so `Queued` is vendor-faithful.
+## `_passthrough` examples
+
+Forward Scaleway-specific fields (e.g. `scheduled_at`) via `_passthrough.body`. Supply snake_case wire keys directly — the PHP connector does not transform passthrough casing.
 
 ## Vendor docs
 
-- API reference: https://www.scaleway.com/en/developers/api/transactional-email/
-- Send an email: https://www.scaleway.com/en/docs/transactional-email/api-cli/send-emails-with-api/
-- IAM API keys: https://www.scaleway.com/en/docs/transactional-email/how-to/generate-api-keys-for-tem-with-iam/
+- API reference: <https://www.scaleway.com/en/developers/api/transactional-email/>
+- Send an email: <https://www.scaleway.com/en/docs/transactional-email/api-cli/send-emails-with-api/>
+- IAM API keys: <https://www.scaleway.com/en/docs/transactional-email/how-to/generate-api-keys-for-tem-with-iam/>

@@ -19,7 +19,7 @@ $result = $push->send(new PushSendInput(to: 'device-token', title: 'Hello', body
 
 `WonderpushConfig(applicationId: string, accessToken: string)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,16 +27,36 @@ Application ID + Access Token from WonderPush dashboard. HTTP Basic auth as `<ap
 
 ## Endpoint
 
-`https://management-api.wonderpush.com/v1/deliveries`
+`https://management-api.wonderpush.com/v1/deliveries` — single global endpoint, JSON body.
 
-## Rate limits
+## Narrowed input augmentations
 
-See vendor docs: <https://www.wonderpush.com/docs/reference/management-api/rate-limits>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+`to` → `targetUserIds: [to]`; `title` → `notification.alert.title`; `body` → `notification.alert.text`; `data` → `notification.custom`. `config.applicationId` is forwarded into the body as `applicationId`. On success `providerMessageId` comes from the response `id` (falling back to `notificationId`).
 
-## Tier
+The wire body is camelCase-native. `WonderpushPushSendInput` extends `PushSendInput` with `targetUserIds` (a supplied slice replaces the default `[to]`), `targetSegmentIds`, `customSegmentation`, `subtitle`, `sound`, `badge`, `notification` (a block override, deep-merged over the built block), `actions`, and `categories`. Any further WonderPush fields go via `_passthrough.body` (merged verbatim — no casing transform).
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+## Error mapping
 
-## `_passthrough` example
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 | (any) | `AuthFailed` |
+| 404 | (any) | `InvalidRecipient` |
+| 429 | (any) | `RateLimited` |
+| 500 / 503 | (any) | `ProviderUnavailable` |
+| 400 (and other 4xx) | (any) | `InvalidRequest` |
+| other 5xx | (any) | `ProviderUnavailable` |
+| — | (unmatched) | `Unknown` |
+
+The error message is read from the JSON `error.message` field.
+
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward WonderPush-specific fields (e.g. `targetSegmentIds`, `notification`, `actions`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: https://docs.wonderpush.com/reference/post-deliveries
+- Auth: https://docs.wonderpush.com/reference/authentication
+- Rate limits: https://docs.wonderpush.com/reference/rate-limiting

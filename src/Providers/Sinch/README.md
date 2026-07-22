@@ -19,7 +19,7 @@ $result = $sms->send(new SmsSendInput(to: '+15551234567', body: 'Hello, world!')
 
 `SinchConfig(apiToken: string, servicePlanId: string, region: ?SinchRegion = null)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,20 +27,34 @@ API token from Sinch dashboard. Sent as `Authorization: Bearer <token>`. Regiona
 
 ## Endpoint
 
-`https://us.sms.api.sinch.com/xms/v1/{servicePlanId}/batches`
+`https://{region}.sms.api.sinch.com/xms/v1/{servicePlanId}/batches` — JSON body. Regional clusters: `us` (default), `eu`.
 
-## Regional endpoints
+## Narrowed input augmentations
 
-`us`, `eu`
+Standard SMS input (`to`, `body`, `from`) applies. `from` (per-send or `config.from`) is **required**; the batches API expects an array even for a single recipient, so the connector wraps `to` as `[to]`; `body` maps to `body`. On success `providerMessageId` comes from the response `id`.
 
-## Rate limits
+`SinchNarrowedInput` extends `SmsSendInput` with below-baseline Sinch fields, written to the wire in snake_case: `deliveryReport` (`delivery_report`), `sendAt` (`send_at`), `expireAt` (`expire_at`), `callbackUrl` (`callback_url`), `clientReference` (`client_reference`), `feedbackEnabled` (`feedback_enabled`), `flashMessage` (`flash_message`), plus `type` and `parameters` (passed through unchanged). Any further Sinch-specific snake_case fields go via `_passthrough.body`.
 
-See vendor docs: <https://developers.sinch.com/docs/sms/api-reference/sms/tag/Batches/>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+## Error mapping
 
-## Tier
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 403 | (any) | `AuthFailed` |
+| 429 | (any) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| 4xx | `code` `invalid_destination` / `invalid_recipient` | `InvalidRecipient` |
+| other 4xx | (no matching `code`) | `InvalidRequest` |
+| — | (unmatched) | `Unknown` |
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+The vendor `code`/`text` are read from the JSON error body and refine a 4xx before the generic `InvalidRequest` fallback. Before dispatch, a request with no `from`/`config.from` raises `InvalidRequest` (400) locally.
 
-## `_passthrough` example
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward Sinch-specific fields (e.g. `delivery_report`, `flash_message`, `feedback_enabled`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: https://developers.sinch.com/docs/sms/api-reference/sms/tag/Batches
+- Regions: https://developers.sinch.com/docs/sms/api-reference

@@ -104,7 +104,8 @@ final class BrevoEmailConnectorTest extends TestCase
             $this->fail('Expected ConnectorError');
         } catch (ConnectorError $err) {
             $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
-            $this->assertSame(0, $err->statusCode);
+            // Pre-HTTP validation error → no HTTP status (null), not the invalid 0.
+            $this->assertNull($err->statusCode);
         }
         $this->assertCount(0, $this->mockClient->getRequests());
     }

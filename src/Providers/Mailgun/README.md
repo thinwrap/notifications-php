@@ -19,7 +19,7 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 
 `MailgunConfig(apiKey: string, domain: string, region: ?MailgunRegion = null)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,20 +27,36 @@ API key from Mailgun dashboard. HTTP Basic auth as `api:<key>`. EU endpoint at `
 
 ## Endpoint
 
-`https://api.mailgun.net/v3/{domain}/messages`
+`https://api.mailgun.net/v3/{domain}/messages` (`us` region). The `eu` region swaps the host to `api.eu.mailgun.net`. Form-encoded request body (or `multipart/form-data` when attachments are present).
 
-## Regional endpoints
+## Narrowed input augmentations
 
-`us`, `eu`
+Standard email input applies. The body is sent as `application/x-www-form-urlencoded` (no attachments) or `multipart/form-data` (with attachments): `from` (+ config `senderName`, composed as `Name <addr>`) → `from`, `to` → `to`, `subject` → `subject`, `html`/`text` → `html`/`text`, `cc`/`bcc` → comma-joined `cc`/`bcc`, `replyTo` → `h:Reply-To`, each `headers` entry → `h:<Name>`, and `tags` → repeated `o:tag` fields (**max 3**; extras truncated, emitted in both transport paths). Attachments become `attachment` parts, or `inline` when `contentId` is set. `status` is `Queued` (Mailgun acknowledges queue acceptance, not delivery); `providerMessageId` comes from the response `id`.
 
-## Rate limits
+Provider-specific form fields ride verbatim in `_passthrough['body']` (no casing transform; Mailgun's wire keys are literal): e.g. `o:tag`, `o:deliverytime`, `o:tracking`, `v:<name>`, `template`, `t:variables`, `h:X-Mailgun-Variables`.
 
-See vendor docs: <https://documentation.mailgun.com/docs/mailgun/api-reference/intro/#rate-limit>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+## Error mapping
 
-## Tier
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 402 | (any) | `AuthFailed` |
+| 400 | `message` matches `not a valid email` / `invalid recipient` / `invalid address` | `InvalidRecipient` |
+| 400 | (other) | `InvalidRequest` |
+| 404 / 413 | (any) | `InvalidRequest` |
+| 429 | (any) | `RateLimited` |
+| ≥500 | (any) | `ProviderUnavailable` |
+| — | (unmatched) | `Unknown` |
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+The `message` is read from the JSON error body and drives the 400 refinement before the generic `InvalidRequest` fallback applies.
 
-## `_passthrough` example
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward Mailgun-specific form fields (e.g. `o:tag`, `o:tracking`, `v:my-var`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: <https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/messages>
+- Regions: <https://documentation.mailgun.com/docs/mailgun/api-reference/api-overview>
+- Rate limits: <https://documentation.mailgun.com/docs/mailgun/api-reference/api-overview>

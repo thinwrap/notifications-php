@@ -19,7 +19,7 @@ $result = $chat->send(new ChatSendInput(to: null, body: 'Hello, world!'));
 
 `RocketChatConfig(baseUrl: string, authToken: string, userId: string)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -29,14 +29,34 @@ Personal Access Token (PAT) + User ID from Rocket.Chat → My Account → Person
 
 `https://{server}/api/v1/chat.postMessage`
 
-## Rate limits
+## Narrowed input augmentations
 
-See vendor docs: <https://docs.rocket.chat/reference/api/rest-api>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+Because the PHP connector uses the REST API (two-header auth) rather than an incoming webhook, `to` is **required** and carries the channel identifier (`#channelName`, `@username`, or a raw room id) → wire `channel`; `body` → wire `text`. A missing `to`, or a non-`https://` `baseUrl` (the auth token is sent as request headers), raises `InvalidRequest` (400) locally before dispatch. On success `status` is `Sent` and `providerMessageId` comes from `message._id` (the REST path returns a message id; webhooks do not). Soft-reject path: a **200 OK with `{success: false}`** returns `ChatSendResult(success: false, status: Rejected, …)` **by design — it is not thrown**.
 
-## Tier
+`RocketChatChatSendInput` extends `ChatSendInput` with below-baseline Rocket.Chat fields: `alias`, `emoji`, `avatar`, and `attachments` (Slack-compat shape, snake_case keys forwarded verbatim — Rocket.Chat already accepts that shape).
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+Any further Rocket.Chat-specific fields go via `_passthrough['body']`, which is forwarded verbatim (no casing transform). Expected keys include `attachments`, `alias`, `avatar`, `emoji`, `tmid`, `tshow`; attachment keys are snake_case on the wire (`author_name` / `image_url` / `thumb_url`).
 
-## `_passthrough` example
+## Error mapping
+
+| Vendor HTTP | Vendor signal (`errorType`) | `ProviderCode` |
+|---|---|---|
+| 401 / 403 | (any) | `AuthFailed` |
+| 400 | `invalid-channel` | `InvalidRecipient` |
+| 400 | (other) | `InvalidRequest` |
+| 429 | (any) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| — | (unmatched, incl. 404) | `Unknown` |
+
+The provider message is extracted from the body `error` field, falling back to `message`. A 400 whose body `errorType` is `invalid-channel` is refined to `InvalidRecipient` before the generic 400 fallback.
+
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward Rocket.Chat-specific fields (e.g. `alias`, `emoji`, `attachments`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: <https://docs.rocket.chat/use-rocket.chat/workspace-administration/integrations>
+- REST API: <https://docs.rocket.chat/reference/api/rest-api>

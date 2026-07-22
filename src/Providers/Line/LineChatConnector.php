@@ -92,9 +92,6 @@ final class LineChatConnector extends BaseConnector implements ChatConnectorInte
         $mergedHeaders = $merged['headers'];
 
         $url = self::ENDPOINT;
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();

@@ -107,9 +107,6 @@ final class RocketChatChatConnector extends BaseConnector implements ChatConnect
         $mergedHeaders = $merged['headers'];
 
         $url = "{$this->config->baseUrl}/api/v1/chat.postMessage";
-        if ($merged['query'] !== []) {
-            $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();

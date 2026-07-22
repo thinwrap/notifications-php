@@ -54,6 +54,15 @@ final class MattermostChatConnector extends BaseConnector implements ChatConnect
             );
         }
 
+        if (!str_starts_with(strtolower($this->config->webhookUrl), 'https://')) {
+            // The webhook URL IS the credential; refuse cleartext http.
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'Mattermost webhookUrl must be an https:// URL.',
+                statusCode: 400,
+            );
+        }
+
         $connectorBody = ['text' => $input->body];
         if ($input instanceof MattermostChatSendInput) {
             if ($input->attachments !== null) {
@@ -93,9 +102,6 @@ final class MattermostChatConnector extends BaseConnector implements ChatConnect
         $mergedHeaders = $merged['headers'];
 
         $url = $this->config->webhookUrl;
-        if ($merged['query'] !== []) {
-            $url .= (str_contains($url, '?') ? '&' : '?') . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();

@@ -19,7 +19,7 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 
 `SparkpostConfig(apiKey: string, region: ?SparkpostRegion = null)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,20 +27,39 @@ API key from SparkPost dashboard. Sent as `Authorization: <key>` header (no `Bea
 
 ## Endpoint
 
-`https://api.sparkpost.com/api/v1/transmissions`
+Region-derived, JSON body:
+- `us` (default): `https://api.sparkpost.com/api/v1/transmissions`
+- `eu`: `https://api.eu.sparkpost.com/api/v1/transmissions`
 
-## Regional endpoints
+## Narrowed input augmentations
 
-`us`, `eu`
+Standard Email input maps into the Transmissions shape: `from` (+ `config.senderName`) → `content.from` (`{email, name?}`); `subject` → `content.subject`; `html`/`text` → `content.html`/`.text`; `replyTo` → `content.reply_to` (a **string**); `headers` → `content.headers`; `attachments` → `content.attachments` (`{name, data(base64), type?}`) or `content.inline_images` when `contentId` is set; `tags` → `metadata.tags`. On success `status` is `Queued` and `providerMessageId` comes from `results.id`.
 
-## Rate limits
+**CC/BCC outlier:** SparkPost has no `cc`/`bcc` fields — `to` seeds `recipients[]`, and each `cc`/`bcc` is appended to `recipients[]` with `address.header_to` set to the primary `to`; CC visibility comes from `content.headers.CC` (comma-joined), BCC stays invisible. There is no narrowed input class; any further SparkPost-specific snake_case fields go via `_passthrough.body` (e.g. `campaign_id`, `substitution_data`, `options`, `metadata`).
 
-See vendor docs: <https://www.sparkpost.com/docs/tech-resources/api-rate-limiting/>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+## Error mapping
 
-## Tier
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 403 / 420 | (any) | `AuthFailed` |
+| 429 | (any) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| 413 / 422 | (any) | `InvalidRequest` |
+| 400 | first-error `message` matches `recipient` / `address`, or `code` `1300` / `1301` / `1303` | `InvalidRecipient` |
+| 400 | (other) | `InvalidRequest` |
+| 2xx | `results.total_accepted_recipients == 0` && `total_rejected_recipients > 0` | `InvalidRecipient` |
+| — | (unmatched) | `Unknown` |
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+The first-error `message`/`code` are read from `errors[0]`. A 2xx that rejected **all** recipients is surfaced as an `InvalidRecipient` error so consumers handle it like a 4xx from other providers.
 
-## `_passthrough` example
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward SparkPost-specific fields. CC/BCC are translated to `recipients[].header_to` + `content.headers.CC` at the wire layer (outlier).
+
+## Vendor docs
+
+- API reference: https://developers.sparkpost.com/api/transmissions/
+- EU endpoint: https://developers.sparkpost.com/api/index.html
+- Rate limits: https://developers.sparkpost.com/api/index.html#header-rate-limiting

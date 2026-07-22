@@ -162,9 +162,6 @@ final class TwilioSmsConnector extends BaseConnector implements SmsConnectorInte
         $regionValue = $this->config->region->value ?? 'us1';
         $host = self::BASE_HOSTS[$regionValue];
         $url = "https://{$host}/2010-04-01/Accounts/{$this->config->accountSid}/Messages.json";
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostForm($url, $form, $mergedHeaders);
 

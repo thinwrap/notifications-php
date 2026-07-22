@@ -114,9 +114,6 @@ final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInt
         $mergedHeaders = $merged['headers'];
 
         $url = "https://{$this->config->baseUrl}/sms/2/text/advanced";
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
 

@@ -105,7 +105,19 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         // either silently dropped or produces a SignatureDoesNotMatch.
         $canonicalQuery = $this->buildCanonicalQuery($mergedQuery);
 
-        $serializedBody = json_encode($mergedBody, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        try {
+            $serializedBody = json_encode($mergedBody, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            // Keep the error contract: a bad body (e.g. invalid UTF-8) must surface
+            // as a ConnectorError, not a raw \JsonException the consumer can't catch
+            // through the documented type.
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'SES: failed to encode request body',
+                statusCode: null,
+                cause: ['raw' => ['exception' => $e::class], 'retryAfter' => null],
+            );
+        }
         $isoTimestamp = $this->getTimestamp();
 
         $signedHeaders = $this->signRequest($serializedBody, $mergedHeaders, $isoTimestamp, $canonicalQuery);
@@ -248,7 +260,7 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         $altBoundary = '----=_Alt_' . bin2hex(random_bytes(8));
 
         $lines = [];
-        $lines[] = 'From: ' . self::encodeHeaderValue($from);
+        $lines[] = 'From: ' . self::encodeFromHeaderValue($from);
         $lines[] = 'To: ' . self::stripCrlf($input->to);
         if ($input->cc !== null && $input->cc !== []) {
             $lines[] = 'Cc: ' . implode(', ', array_map(self::stripCrlf(...), $input->cc));
@@ -274,25 +286,24 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         $lines[] = 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"';
         $lines[] = '';
 
+        // Body parts are base64-encoded (not 8bit): SES honors SMTP's 7-bit
+        // limit and mangles 8-bit content if it rewrites the message (open/click
+        // tracking); an unfolded 8bit line also violates the 998-octet line cap
+        // for minified HTML. base64 is the RFC-/AWS-sanctioned 7-bit-safe encoding.
         if ($input->text !== null && $input->text !== '') {
             $lines[] = '--' . $altBoundary;
             $lines[] = 'Content-Type: text/plain; charset=UTF-8';
-            // 8bit (not 7bit): the body may carry non-ASCII UTF-8 octets
-            // (accents, emoji); declaring 7bit over an 8-bit body is a MIME
-            // encoding mismatch on the raw-MIME path.
-            $lines[] = 'Content-Transfer-Encoding: 8bit';
+            $lines[] = 'Content-Transfer-Encoding: base64';
             $lines[] = '';
-            $lines[] = $input->text;
+            $lines[] = rtrim(chunk_split(base64_encode($input->text), 76, "\r\n"), "\r\n");
             $lines[] = '';
         }
         if ($input->html !== null && $input->html !== '') {
             $lines[] = '--' . $altBoundary;
             $lines[] = 'Content-Type: text/html; charset=UTF-8';
-            // 8bit (not 7bit): see the text/plain part above — the HTML body may
-            // contain non-ASCII UTF-8 octets, so declare the encoding truthfully.
-            $lines[] = 'Content-Transfer-Encoding: 8bit';
+            $lines[] = 'Content-Transfer-Encoding: base64';
             $lines[] = '';
-            $lines[] = $input->html;
+            $lines[] = rtrim(chunk_split(base64_encode($input->html), 76, "\r\n"), "\r\n");
             $lines[] = '';
         }
         $lines[] = '--' . $altBoundary . '--';
@@ -354,6 +365,30 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         }
 
         return '=?UTF-8?B?' . base64_encode($stripped) . '?=';
+    }
+
+    /**
+     * Encode a `From` header value. RFC 2047 forbids encoded-words inside an
+     * addr-spec, so a whole `Name <addr>` must never be base64'd as one word —
+     * that swallows the routable `<addr>`. When the value is a `Name <addr>`
+     * phrase we RFC 2047 encode ONLY the display-name (and only when it carries
+     * non-ASCII), leaving `<addr>` bare; a pure-ASCII name stays a normal phrase.
+     * A bare address (no display-name) passes through CRLF-stripped, unencoded.
+     */
+    private static function encodeFromHeaderValue(string $from): string
+    {
+        $stripped = self::stripCrlf($from);
+        if (preg_match('/^(.*)<([^>]*)>$/', $stripped, $m) === 1) {
+            $name = trim($m[1]);
+            $addr = trim($m[2]);
+            if ($name === '') {
+                return '<' . $addr . '>';
+            }
+
+            return self::encodeHeaderValue($name) . ' <' . $addr . '>';
+        }
+
+        return $stripped;
     }
 
     /**

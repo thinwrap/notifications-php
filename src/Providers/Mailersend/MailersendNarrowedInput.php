@@ -11,6 +11,11 @@ use Thinwrap\Notifications\DTO\Email\EmailSendInput;
  * MailerSend-specific narrowed input. Captures fields beyond the ≥90% baseline
  * per the ≥90%-of-providers baseline rule.
  *
+ * At v1.0 the below-baseline fields (`templateId`, `personalization`,
+ * `variables`, `sendAt`, `precedenceBulk`, `settings`) are NOT auto-applied by
+ * the connector; supply them via `_passthrough.body` (MailerSend wire keys).
+ * Promotion to first-class mapping is deferred to v1.1.
+ *
  * @phpstan-type Personalization list<array{email:string,data:array<string,mixed>}>
  * @phpstan-type Variables list<array{email:string,substitutions:list<array{var:string,value:string}>}>
  * @phpstan-type Settings array{trackClicks?:bool,trackOpens?:bool,trackContent?:bool}

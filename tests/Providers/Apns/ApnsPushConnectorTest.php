@@ -76,6 +76,9 @@ final class ApnsPushConnectorTest extends TestCase
         $this->assertSame('bearer apns-jwt', $request->getHeaderLine('authorization'));
         $this->assertSame('com.example', $request->getHeaderLine('apns-topic'));
         $this->assertSame('alert', $request->getHeaderLine('apns-push-type'));
+        // APNs is HTTP/2-only: the request must be pinned to protocol 2.0 so a
+        // curl-backed PSR-18 client negotiates h2 (Guzzle otherwise forces 1.1).
+        $this->assertSame('2.0', $request->getProtocolVersion());
     }
 
     public function testBadDeviceTokenMapsInvalidRecipient(): void

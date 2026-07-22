@@ -66,8 +66,8 @@ final class SmsTest extends TestCase
     public static function wiredConnectorProvider(): array
     {
         $pairs = self::validPairProvider();
-        // Per a documented design decision the Novu `nexmo` alias is dropped — Vonage is the
-        // single canonical id for the Vonage/Nexmo provider.
+        // Vonage is the single canonical id for the Vonage (formerly Nexmo) provider;
+        // there is no separate `nexmo` alias.
         $expected = [
             'vonage'      => VonageSmsConnector::class,
             'twilio'      => TwilioSmsConnector::class,

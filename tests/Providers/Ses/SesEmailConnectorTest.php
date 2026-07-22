@@ -176,6 +176,58 @@ final class SesEmailConnectorTest extends TestCase
         $this->assertStringContainsString(base64_encode('hello'), $rawMime);
     }
 
+    public function testRawMimeFromHeaderKeepsBareAddressWithNonAsciiSenderName(): void
+    {
+        // RFC 2047 forbids encoded-words inside an addr-spec: a non-ASCII
+        // senderName must encode ONLY the display-name phrase, leaving a
+        // parseable bare `<addr@domain>` for SES to route/reply to. An
+        // attachment forces the raw-MIME (Content.Raw) path.
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"from-1"}'))
+        );
+        $connector = new SesEmailConnector(
+            new SesConfig(
+                region: 'us-east-1',
+                accessKeyId: 'AKIATEST',
+                secretAccessKey: 'secretvalue',
+                senderName: 'Café Señor',
+            ),
+            ...$this->httpDeps(),
+        );
+
+        $attachment = new EmailAttachment(
+            filename: 'file.txt',
+            contentType: 'text/plain',
+            content: 'hello',
+        );
+        $input = new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+            attachments: [$attachment],
+        );
+
+        $connector->send($input);
+
+        $request = $this->mockClient->getRequests()[0];
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
+        $this->assertNotFalse($rawMime);
+
+        // Grab the From header line.
+        $this->assertSame(1, preg_match('/^From: (.*)$/m', $rawMime, $m));
+        $fromValue = $m[1];
+
+        // The routable address must remain a bare, parseable `<addr@domain>` —
+        // NOT swallowed inside a single encoded-word.
+        $this->assertStringContainsString('<sender@example.com>', $fromValue);
+        $this->assertStringNotContainsString('<sender@example.com>?=', $fromValue);
+        // The non-ASCII display-name is RFC 2047 base64 encoded on its own.
+        $this->assertStringContainsString('=?UTF-8?B?' . base64_encode('Café Señor') . '?=', $fromValue);
+    }
+
     public function testTagsMapToEmailTags(): void
     {
         // a documented design decision: tags lift to EmailTags: [{Name, Value}].
@@ -361,10 +413,10 @@ final class SesEmailConnectorTest extends TestCase
         $this->assertLessThanOrEqual(76, $maxBase64LineLength);
     }
 
-    public function testNonAsciiBodyDeclares8bitNotBase64Or7bit(): void
+    public function testNonAsciiBodyDeclaresBase64Not8bitOr7bit(): void
     {
-        // A custom header forces the raw-MIME path; the UTF-8 (8-bit) body means
-        // the text parts must declare `8bit`, never `7bit`.
+        // A custom header forces the raw-MIME path; the UTF-8 body must be
+        // base64-encoded (7-bit-safe), never 8bit/7bit.
         $this->mockClient->addResponse(
             (new Response(200))->withBody($this->factory->createStream('{"MessageId":"utf-1"}'))
         );
@@ -389,10 +441,11 @@ final class SesEmailConnectorTest extends TestCase
 
         $this->assertStringContainsString('Content-Type: text/plain; charset=UTF-8', $rawMime);
         $this->assertStringContainsString('Content-Type: text/html; charset=UTF-8', $rawMime);
-        $this->assertStringContainsString('Content-Transfer-Encoding: 8bit', $rawMime);
+        $this->assertStringContainsString('Content-Transfer-Encoding: base64', $rawMime);
+        $this->assertStringNotContainsString('Content-Transfer-Encoding: 8bit', $rawMime);
         $this->assertStringNotContainsString('Content-Transfer-Encoding: 7bit', $rawMime);
-        // 8bit means the body bytes are emitted verbatim, not re-encoded.
-        $this->assertStringContainsString('café ☕', $rawMime);
+        // The UTF-8 body survives intact: the base64-encoded part decodes back.
+        $this->assertStringContainsString(base64_encode('café ☕'), $rawMime);
     }
 
     private function basicInput(): EmailSendInput

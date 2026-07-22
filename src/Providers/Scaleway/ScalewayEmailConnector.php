@@ -31,8 +31,7 @@ use Thinwrap\Notifications\Util\Passthrough;
  *   2. Auth is `X-Auth-Token` (raw secret key), not `Authorization`.
  *   3. `project_id` is MANDATORY and comes from config.
  *
- * No Novu brownfield surface — Novu has no Scaleway provider, so this connector
- * is Thinwrap-native only per the Novu-compat-not-critical-path policy.
+ * Thinwrap-native connector (no legacy brownfield surface).
  *
  * Casing locality (casing-locality): snake_case wire keys are written directly in
  * the array literals; no shared casing transform. PHP `_passthrough` consumers
@@ -76,9 +75,6 @@ final class ScalewayEmailConnector extends BaseConnector implements EmailConnect
         );
 
         $url = $this->resolveEndpoint();
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         /** @var array<string,mixed> $mergedBody */
         $mergedBody = $merged['body'];

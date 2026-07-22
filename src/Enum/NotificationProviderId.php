@@ -6,7 +6,7 @@ namespace Thinwrap\Notifications\Enum;
 
 /**
  * Canonical Thinwrap provider IDs spanning all 35 notification providers
- * across Email / SMS / Push / Chat. Values match Novu enum strings, with
+ * across Email / SMS / Push / Chat. Values are lowercase provider slugs, with
  * `ms-teams` and `rocket-chat` using kebab-case.
  *
  * Channel membership is enforced by each facade's `match` arms — the enum

@@ -28,7 +28,7 @@ use Thinwrap\Notifications\Util\Passthrough;
  * hand-mapped per the casing-locality rule.
  *
  * **Attachment pre-flight guard:** if any `attachments[].contentId` is set, throws
- * `ConnectorError(InvalidRequest, statusCode: 0)` BEFORE any HTTP call —
+ * `ConnectorError(InvalidRequest, statusCode: null)` BEFORE any HTTP call —
  * Brevo's `/v3/smtp/email` has no first-class cid mechanism. This is the
  * canonical "vendor doesn't support a baseline field" throw, consistent with
  * the ≥90%-of-providers baseline rule.
@@ -58,7 +58,7 @@ final class BrevoEmailConnector extends BaseConnector implements EmailConnectorI
                     throw new ConnectorError(
                         providerCode: ProviderCode::InvalidRequest,
                         providerMessage: 'Brevo does not support inline cid attachments via API; use Brevo template substitutions via _passthrough or pick another provider.',
-                        statusCode: 0,
+                        statusCode: null,
                     );
                 }
             }
@@ -76,9 +76,6 @@ final class BrevoEmailConnector extends BaseConnector implements EmailConnectorI
         );
 
         $url = self::ENDPOINT;
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         /** @var array<string,mixed> $mergedBody */
         $mergedBody = $merged['body'];

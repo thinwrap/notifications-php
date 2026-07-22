@@ -70,9 +70,6 @@ final class MailersendEmailConnector extends BaseConnector implements EmailConne
         );
 
         $url = self::ENDPOINT;
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         /** @var array<string,mixed> $mergedBody */
         $mergedBody = $merged['body'];

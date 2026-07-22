@@ -31,7 +31,7 @@ use Thinwrap\Notifications\Util\Passthrough;
  *
  * Cryptography uses only PHP `ext-openssl` (`openssl_pkey_get_private` +
  * `openssl_sign` with `OPENSSL_ALGO_SHA256`) — no `firebase/php-jwt`, no
- * `google/auth` dependency (zero-runtime-deps).
+ * `google/auth` dependency (no vendor SDKs).
  */
 final class FcmPushConnector extends BaseConnector implements PushConnectorInterface
 {
@@ -39,6 +39,14 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
 
     private const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
     private const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+
+    /**
+     * Clock-skew safety margin: a cached token's `expiresAt` is stored one
+     * minute short of the real OAuth expiry so a near-expiry token is not
+     * reused in its final second(s) (avoids an intermittent 401). Mirrors the
+     * APNs connector's reduced-TTL margin.
+     */
+    private const TOKEN_EXPIRY_SKEW_SECONDS = 60;
 
     public function __construct(
         private readonly FcmConfig $config,
@@ -73,9 +81,6 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
         $mergedHeaders = $merged['headers'];
 
         $url = "https://fcm.googleapis.com/v1/projects/{$this->config->projectId}/messages:send";
-        if ($merged['query'] !== []) {
-            $url .= '?' . http_build_query($merged['query']);
-        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
 
@@ -109,7 +114,10 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
      */
     private function getAccessTokenViaHookOrFresh(): string
     {
-        $cacheKey = "fcm:{$this->config->projectId}";
+        // Include the service-account identity so two configs for the same
+        // project with different service accounts (sharing one tokenCache) never
+        // serve each other's tokens.
+        $cacheKey = "fcm:{$this->config->projectId}:{$this->config->clientEmail}";
 
         if ($this->config->tokenCache !== null) {
             $cached = $this->config->tokenCache->get($cacheKey);
@@ -123,7 +131,7 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
         if ($this->config->tokenCache !== null) {
             $this->config->tokenCache->set($cacheKey, [
                 'token'     => $accessToken,
-                'expiresAt' => time() + $expiresInSeconds,
+                'expiresAt' => time() + $expiresInSeconds - self::TOKEN_EXPIRY_SKEW_SECONDS,
             ]);
         }
 

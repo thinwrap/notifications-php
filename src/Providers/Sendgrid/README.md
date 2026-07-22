@@ -19,7 +19,7 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 
 `SendgridConfig(apiKey: string)`
 
-The `client` field on every config accepts an optional `Psr\Http\Client\ClientInterface` (BYO PSR-18, defaults to `php-http/discovery`).
+Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
 ## Auth setup
 
@@ -27,16 +27,34 @@ API key from SendGrid dashboard. Sent as `Authorization: Bearer <key>`.
 
 ## Endpoint
 
-`https://api.sendgrid.com/v3/mail/send`
+`https://api.sendgrid.com/v3/mail/send` — single global endpoint, no regional clusters.
 
-## Rate limits
+## Narrowed input augmentations
 
-See vendor docs: <https://www.twilio.com/docs/sendgrid/api-reference/how-to-use-the-sendgrid-v3-api/rate-limits>. The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage`. There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+The standard email input applies as-is: `from`, `to`, `cc`, `bcc`, `replyTo`, `subject`, `text`, `html`, `attachments`, `headers`, and `tags` (mapped to SendGrid `categories`). SendGrid template sends and other v3-API-specific fields go through `_passthrough.body` using snake_case wire keys (e.g. `template_id`, `personalizations[].dynamic_template_data`, `mail_settings`, `tracking_settings`).
 
-## Tier
+## Error mapping
 
-This connector is **Tier 1** (lightweight static or webhook auth).
+| Vendor HTTP | Vendor signal | `ProviderCode` |
+|---|---|---|
+| 401 / 403 | (any) | `AuthFailed` |
+| 400 | first `errors[].message` contains "email" | `InvalidRecipient` |
+| 400 | (other) | `InvalidRequest` |
+| 413 | (any) | `InvalidRequest` |
+| 429 | (any) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
+| — | (unmatched) | `Unknown` |
 
-## `_passthrough` example
+The 400 → `InvalidRecipient` branch is a case-insensitive substring check for `email` on the first `errors[].message` in the JSON error body.
+
+The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
+
+## `_passthrough` examples
 
 Forward SendGrid v3-specific fields (e.g. `dynamic_template_data`, `mail_settings`, `tracking_settings`) via `_passthrough.body`.
+
+## Vendor docs
+
+- API reference: <https://www.twilio.com/docs/sendgrid/api-reference/mail-send/mail-send>
+- Error codes: <https://www.twilio.com/docs/sendgrid/api-reference/how-to-use-the-sendgrid-v3-api/responses>
+- Rate limits: <https://www.twilio.com/docs/sendgrid/api-reference/how-to-use-the-sendgrid-v3-api/rate-limits>
