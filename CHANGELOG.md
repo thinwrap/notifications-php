@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-07-24
+
+### Fixed
+
+- **APNs now sends over HTTP/2, which Apple's push service requires.** The
+  request's HTTP version is pinned to `2.0` via a new optional
+  `$protocolVersion` argument on the base connector's POST helpers, so PSR-18
+  clients that otherwise default to HTTP/1.1 (e.g. Guzzle) negotiate h2 —
+  previously every APNs push failed against an HTTP/1.1-only transport.
+- **Connector hardening (second/third review pass)** — error-classification and
+  request/response corrections across the email, SMS, push, and chat connectors.
+
+### Changed
+
+- **Per-connector READMEs normalised** to one consistent structure across the
+  notification providers (documentation only; no API change).
+
 ## [1.0.1] — 2026-07-20
 
 ### Changed
