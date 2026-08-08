@@ -43,5 +43,5 @@ and [`.ai/CONVENTIONS.md`](.ai/CONVENTIONS.md) before proposing structural chang
 ## Reporting bugs and security issues
 
 - Bugs and feature requests: <https://github.com/thinwrap/notifications-php/issues>
-- Security vulnerabilities: see [`SECURITY.md`](SECURITY.md) — please report
-  privately, not via public issues.
+- Security vulnerabilities: see the **Security** section of the
+  [README](README.md#security) — please report privately, not via public issues.

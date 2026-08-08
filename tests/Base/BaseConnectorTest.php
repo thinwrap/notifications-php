@@ -26,6 +26,63 @@ final class BaseConnectorTest extends TestCase
         return new TestableConnector($client, $factory, $factory, $authHeaders);
     }
 
+    /**
+     * PSR-18 requires a non-2xx to be RETURNED, not thrown. A client that raises
+     * instead (Guzzle's BadResponseException shape) still answered, so the caller
+     * must see the real status rather than an apparent outage.
+     */
+    public function testDispatchRecoversTheResponseFromAClientThatThrowsOnNon2xx(): void
+    {
+        $client = new class implements ClientInterface {
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                throw new class ('429 Too Many Requests', new Response(429, ['Retry-After' => '30'], '{"error":"slow down"}')) extends \RuntimeException implements \Psr\Http\Client\ClientExceptionInterface {
+                    public function __construct(string $message, private readonly ResponseInterface $response)
+                    {
+                        parent::__construct($message);
+                    }
+
+                    public function getResponse(): ResponseInterface
+                    {
+                        return $this->response;
+                    }
+                };
+            }
+        };
+
+        $response = $this->makeConnector($client)->callSendGet('https://example.test/api');
+
+        self::assertSame(429, $response->getStatusCode());
+        self::assertSame('30', $response->getHeaderLine('Retry-After'));
+        self::assertSame('{"error":"slow down"}', (string) $response->getBody());
+    }
+
+    /**
+     * getResponse() returning null (Guzzle's ConnectException shape) is a genuine
+     * transport failure and must not be mistaken for an answer.
+     */
+    public function testDispatchStillReportsATransportFailureWithNoResponse(): void
+    {
+        $client = new class implements ClientInterface {
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                throw new class ('connection refused') extends \RuntimeException implements \Psr\Http\Client\ClientExceptionInterface {
+                    public function getResponse(): ?ResponseInterface
+                    {
+                        return null;
+                    }
+                };
+            }
+        };
+
+        try {
+            $this->makeConnector($client)->callSendGet('https://example.test/api');
+            self::fail('expected ConnectorError');
+        } catch (ConnectorError $e) {
+            self::assertSame(ProviderCode::ProviderUnavailable, $e->providerCode);
+        }
+    }
+
     public function testInjectedClientIsUsed(): void
     {
         $client = new MockClient();

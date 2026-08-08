@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] — 2026-08-08
+
+### Fixed
+
+- A PSR-18 client that throws on a non-2xx no longer collapses every provider error into
+  `provider_unavailable` with no status; status mapping and `Retry-After` run as before.
+
+### Documentation
+
+- The PSR-18 non-2xx contract is now stated in the README, not only in `.ai/`.
+
 ## [1.1.0] — 2026-07-24
 
 ### Fixed

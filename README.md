@@ -73,6 +73,13 @@ $vonage->send($sameInput);
 Inject any PSR-18 client through the `client` parameter on the `*Config` DTO — useful
 for tracing, mocking, or proxying through `symfony/http-client`.
 
+**Contract: a non-2xx must be RETURNED, not thrown.** PSR-18 requires this and compliant
+clients honour it, so each connector can map the status to a `ProviderCode`
+(429 → `RateLimited`, 401 → `AuthFailed`, …), read the vendor's message, and honour
+`Retry-After`. A client that raises instead — Guzzle used outside its PSR-18 adapter, or a
+decorator calling raise-on-error — is handled defensively: the answered response is
+recovered from the exception's `getResponse()` so classification still runs.
+
 ```bash
 composer require guzzlehttp/guzzle
 ```
@@ -361,10 +368,18 @@ AI agents working with this package should consult `.ai/guidelines.md` first.
 
 ## Security
 
-See [`SECURITY.md`](SECURITY.md) for private vulnerability disclosure. Releases are
-cosign-signed via GitHub Actions OIDC (no static signing keys); maintainer accounts
-require two-factor authentication (TOTP via an authenticator app) on GitHub. Packagist consumes the package via webhook
-auto-sync — no long-lived Packagist API token is stored anywhere.
+Report vulnerabilities **privately** — please do not open a public issue. Preferred: a
+[private security advisory](https://github.com/thinwrap/notifications-php/security/advisories/new)
+on this repository. Alternatively, email **security@thinwrap.dev**. Include the affected
+versions and a minimal reproduction if you have one.
+
+A vulnerability in a *provider's* own API or service belongs to that vendor rather than
+to this wrapper — please report those upstream.
+
+Supply chain: releases are cosign-signed via GitHub Actions OIDC (no static signing
+keys), maintainer accounts require two-factor authentication on GitHub, and Packagist
+consumes the package via webhook auto-sync — no long-lived Packagist API token is stored
+anywhere.
 
 ## License
 

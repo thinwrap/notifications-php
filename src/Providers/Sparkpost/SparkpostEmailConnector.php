@@ -31,7 +31,7 @@ use Thinwrap\Notifications\Util\Passthrough;
  *
  * On 2xx, if `results.total_accepted_recipients === 0 && total_rejected > 0`
  * the connector throws `ConnectorError(InvalidRecipient)` so consumers handle
- * it like a 4xx from other providers (story 3.16 / TS AC 9).
+ * it like a 4xx from other providers.
  */
 final class SparkpostEmailConnector extends BaseConnector implements EmailConnectorInterface
 {

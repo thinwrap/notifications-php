@@ -31,9 +31,9 @@ use Thinwrap\Notifications\Util\Passthrough;
  *   2. Auth is `X-Auth-Token` (raw secret key), not `Authorization`.
  *   3. `project_id` is MANDATORY and comes from config.
  *
- * Thinwrap-native connector (no legacy brownfield surface).
+ * This connector has no Novu-compatible `sendMessage()` surface — only `.send()`.
  *
- * Casing locality (casing-locality): snake_case wire keys are written directly in
+ * Casing stays local: snake_case wire keys are written directly in
  * the array literals; no shared casing transform. PHP `_passthrough` consumers
  * pre-shape snake_case keys at the call site (no `CasingTransform` utility in
  * the bootstrap — same documented constraint as PostmarkEmailConnector).

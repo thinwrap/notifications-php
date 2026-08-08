@@ -192,7 +192,8 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
     }
 
     /**
-     * Synchronous constructor-time validator (story 3.14 AC 7).
+     * Validated at construction rather than at send time, so a config that can never
+     * work fails before the first call.
      */
     private function validateConfig(): void
     {

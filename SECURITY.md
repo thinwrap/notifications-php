@@ -12,7 +12,7 @@ for anything security-sensitive.
 
 - Preferred: open a [private security advisory](https://github.com/thinwrap/notifications-php/security/advisories/new)
   on the repository (GitHub → Security → Report a vulnerability).
-- Alternatively, email **dima@goryde.com** with the details.
+- Alternatively, email **security@thinwrap.dev** with the details.
 
 Please include a description, affected versions, and a minimal reproduction if
 you have one.

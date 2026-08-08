@@ -339,6 +339,16 @@ abstract class BaseConnector
         try {
             return $this->getClient()->sendRequest($request);
         } catch (ClientExceptionInterface $err) {
+            // PSR-18 requires a non-2xx to be RETURNED, not thrown, and every
+            // connector's status mapping depends on it. A client that ignores that
+            // (Guzzle used outside its PSR-18 adapter, a decorator calling
+            // raise-on-error) still answered, so recover the response and let the
+            // connector map it. Duck-typed: no HTTP-client dependency.
+            $response = $this->recoverResponse($err);
+            if ($response !== null) {
+                return $response;
+            }
+
             // The raw client-exception message can embed the full request URL,
             // which for some providers IS the credential (Telegram bot token in
             // the path; Slack/Discord/GoogleChat/Mattermost/MsTeams webhook URLs).
@@ -353,5 +363,27 @@ abstract class BaseConnector
                 ],
             );
         }
+    }
+
+    /**
+     * Recover the PSR-7 response a client attached to its exception, if any.
+     *
+     * Guzzle's `BadResponseException`, Symfony's `HttpExceptionInterface` and
+     * most decorators expose the answered response through `getResponse()`.
+     * Checked reflectively so no HTTP-client package becomes a dependency.
+     */
+    private function recoverResponse(\Throwable $exception): ?ResponseInterface
+    {
+        if (!method_exists($exception, 'getResponse')) {
+            return null;
+        }
+
+        try {
+            $response = $exception->getResponse();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $response instanceof ResponseInterface ? $response : null;
     }
 }

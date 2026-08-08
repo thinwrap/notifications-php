@@ -172,7 +172,6 @@ final class SesEmailConnectorTest extends TestCase
         $this->assertNotFalse($rawMime);
         $this->assertStringContainsString('Content-Type: multipart/mixed', $rawMime);
         $this->assertStringContainsString('Content-Disposition: attachment; filename="file.txt"', $rawMime);
-        // base64 of 'hello'
         $this->assertStringContainsString(base64_encode('hello'), $rawMime);
     }
 
