@@ -17,7 +17,7 @@ $result = $sms->send(new SmsSendInput(to: '+15551234567', body: 'Hello, world!')
 
 ## Configuration
 
-`TelnyxConfig(apiKey: string)`
+`TelnyxConfig(apiKey: string, from: ?string = null)`
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
@@ -37,18 +37,25 @@ API key from Telnyx Mission Control. Sent as `Authorization: Bearer <key>`.
 
 ## Error mapping
 
-| Vendor HTTP | Vendor signal | `ProviderCode` |
+The Telnyx `errors[0].code` (a numeric string) is matched first; the HTTP status applies only when no code matches.
+
+| `errors[0].code` | Meaning (Telnyx) | `ProviderCode` |
 |---|---|---|
-| 401 / 403 | (any) | `AuthFailed` |
-| 429 | (any) | `RateLimited` |
-| 5xx | (any) | `ProviderUnavailable` |
-| 4xx | `errors[0].code` `to_number_invalid` / `messaging_profile_id_not_found` / `no_to_number_provided` | `InvalidRecipient` |
-| other 4xx (incl. bare 422) | (no matching `code`) | `InvalidRequest` |
-| — | (unmatched) | `Unknown` |
+| `40300`, `40309`, `40310` | STOP-blocked recipient, invalid destination region, invalid `to` | `InvalidRecipient` |
+| `10002` with `source.pointer` `/to` | invalid phone number in `to` | `InvalidRecipient` |
+| `10009`, `10010`, `20001`, `20006`, `40311`, `40313` | authentication / authorization, API key, access token, messaging-profile secret | `AuthFailed` |
+| `10011`, `40318` | too many requests, message queue full | `RateLimited` |
+| `40301`–`40308`, `40314`, `40316`, `40317`, `40319`–`40325`, `40328`, `40331`, `40333`, `10002`, `10004`, `10015`, `20100` | request / account problems (e.g. invalid `from`, messaging disabled, no content, insufficient funds) | `InvalidRequest` |
 
-The vendor `code`/`detail`/`title` are read from `errors[0]`. Before dispatch, a request with no `from`/`config.from` **and** no `messagingProfileId` raises `InvalidRequest` (400) locally.
+| Vendor HTTP (no matching code) | `ProviderCode` |
+|---|---|
+| 401 / 403 | `AuthFailed` |
+| 429 | `RateLimited` |
+| 5xx | `ProviderUnavailable` |
+| other 4xx (incl. bare 400 / 422) | `InvalidRequest` |
+| — | `Unknown` |
 
-> **Divergence from the Go sibling doc:** the Go doc maps any bare 422 to `InvalidRecipient`. The PHP connector escalates to `InvalidRecipient` **only** when `errors[0].code` is one of the three recipient codes above; a bare 422 with no matching code falls through to `InvalidRequest`. This README follows the PHP code.
+The 400xx codes are delivery errors Telnyx reports only in the `message.finalized` webhook, so they never reach the send response. The vendor `code`/`detail`/`title` are read from `errors[0]`. Before dispatch, a request with no `from`/`config.from` **and** no `messagingProfileId` raises `InvalidRequest` (400) locally.
 
 The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
 

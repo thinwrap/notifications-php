@@ -37,6 +37,7 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly PusherBeamsConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -48,6 +49,16 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
 
     public function send(PushSendInput $input): PushSendResult
     {
+        // The instance id is interpolated into the host and the path of a
+        // request that carries the secret key, so it must be one DNS label.
+        // Beams SDKs do not require a UUID, so neither does this check.
+        if (preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/D', $this->config->instanceId) !== 1) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'Pusher Beams instanceId must be a single DNS label (letters, digits, hyphens)',
+                statusCode: 400,
+            );
+        }
         $connectorBody = $this->synthesizeWirePayload($input);
         $connectorHeaders = [
             'Content-Type'  => 'application/json',
@@ -67,7 +78,7 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
         $narrowed = $input instanceof PusherBeamsPushSendInput ? $input : null;
         $suffix = $narrowed !== null && $narrowed->interests !== null ? 'interests' : 'users';
 
-        $url = "https://{$this->config->instanceId}.pushnotifications.pusher.com/publish_api/v1/instances/{$this->config->instanceId}/publishes/{$suffix}";
+        $url = "https://{$this->config->instanceId}.pushnotifications.pusher.com/publish_api/v1/instances/" . rawurlencode($this->config->instanceId) . "/publishes/{$suffix}";
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();
@@ -109,8 +120,9 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
             static fn(?string $v): bool => $v !== null,
         );
 
-        // FCM payload.
-        $fcm = ['notification' => $notification];
+        // FCM payload. An empty `notification` would encode as `[]`, which
+        // FCM rejects (it must be an object), so a data-only push omits it.
+        $fcm = $notification !== [] ? ['notification' => $notification] : [];
         if ($input->data !== null) {
             $fcm['data'] = self::stringifyValues($input->data);
         }
@@ -119,8 +131,11 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
             $fcm['android'] = ['ttl' => "{$ttl}s"];
         }
 
-        // APNs payload.
-        $aps = ['alert' => $notification];
+        // APNs payload. APNs `alert` must be a string or dictionary; a
+        // data-only push has none and is a background push, which Apple
+        // defines as "an `aps` dictionary that includes only the
+        // `content-available` key".
+        $aps = $notification !== [] ? ['alert' => $notification] : ['content-available' => 1];
         if ($narrowed !== null) {
             if ($narrowed->badge !== null) {
                 $aps['badge'] = $narrowed->badge;
@@ -130,12 +145,17 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
             }
         }
         $apns = ['aps' => $aps];
+        // Beams publish payloads put custom iOS data beside `aps`:
+        // `apns: { aps: { alert: {…} }, data: {…} }`.
+        if ($input->data !== null) {
+            $apns['data'] = $input->data;
+        }
         if ($ttl !== null) {
             $apns['apns-expiration'] = time() + $ttl;
         }
 
         // Web payload — preserves original data types.
-        $web = ['notification' => $notification];
+        $web = $notification !== [] ? ['notification' => $notification] : [];
         if ($input->data !== null) {
             $web['data'] = $input->data;
         }
@@ -168,6 +188,15 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
             }
         }
 
+        // A push with neither notification nor data has nothing for FCM or
+        // web; an empty block would encode as `[]`, not an object.
+        if ($wire['fcm'] === []) {
+            unset($wire['fcm']);
+        }
+        if ($wire['web'] === []) {
+            unset($wire['web']);
+        }
+
         return $wire;
     }
 
@@ -195,18 +224,25 @@ final class PusherBeamsPushConnector extends BaseConnector implements PushConnec
      */
     protected function mapVendorError(int $statusCode, ?array $body, ResponseInterface $response): ConnectorError
     {
+        // Beams publish API status table: 400 bad request, 401 "Incorrect API
+        // Key", 402 "Publishing has been blocked due to being over plan limits"
+        // (a quota), 404 "Could not find the instance" (a wrong instanceId in
+        // the request, not the recipient), 422 "JSON does not match our
+        // schema" (the request, not the user), 429 "Too many requests", 500
+        // internal error.
         $providerCode = match (true) {
-            $statusCode === 401                  => ProviderCode::AuthFailed,
-            $statusCode === 400                  => ProviderCode::InvalidRequest,
-            $statusCode === 422                  => ProviderCode::InvalidRecipient,
-            $statusCode === 429                  => ProviderCode::RateLimited,
-            $statusCode === 500, $statusCode === 503 => ProviderCode::ProviderUnavailable,
+            $statusCode === 401, $statusCode === 403 => ProviderCode::AuthFailed,
+            $statusCode === 402, $statusCode === 429 => ProviderCode::RateLimited,
+            $statusCode >= 500                   => ProviderCode::ProviderUnavailable,
+            $statusCode >= 400                   => ProviderCode::InvalidRequest,
             default                              => ProviderCode::Unknown,
         };
 
         $baseMessage = "Pusher Beams {$statusCode}";
-        if (is_array($body) && isset($body['error']) && is_string($body['error']) && $body['error'] !== '') {
-            $baseMessage = $body['error'];
+        $error = is_array($body) && isset($body['error']) && is_string($body['error']) ? $body['error'] : '';
+        $description = is_array($body) && isset($body['description']) && is_string($body['description']) ? $body['description'] : '';
+        if ($error !== '' || $description !== '') {
+            $baseMessage = $error !== '' && $description !== '' ? "{$error}: {$description}" : $error . $description;
         }
 
         $retryAfter = $response->getHeaderLine('Retry-After');

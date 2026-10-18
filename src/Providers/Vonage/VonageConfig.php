@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Vonage;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Vonage (formerly Nexmo) SMS connector configuration.
  *
@@ -16,8 +18,12 @@ namespace Thinwrap\Notifications\Providers\Vonage;
  */
 final readonly class VonageConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $apiKey,
+        #[\SensitiveParameter]
         public string $apiSecret,
         public ?string $from = null,
     ) {}

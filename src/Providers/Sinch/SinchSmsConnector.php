@@ -31,6 +31,7 @@ final class SinchSmsConnector extends BaseConnector implements SmsConnectorInter
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly SinchConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -100,7 +101,9 @@ final class SinchSmsConnector extends BaseConnector implements SmsConnectorInter
         $mergedHeaders = $merged['headers'];
 
         $regionValue = $this->config->region->value ?? 'us';
-        $url = "https://{$regionValue}.sms.api.sinch.com/xms/v1/{$this->config->servicePlanId}/batches";
+        // Config values placed in the path are escaped so a stray `/`, `?` or
+        // `#` cannot re-point the credentialed request at another resource.
+        $url = "https://{$regionValue}.sms.api.sinch.com/xms/v1/" . rawurlencode($this->config->servicePlanId) . '/batches';
         if ($merged['query'] !== []) {
             $url .= '?' . http_build_query($merged['query']);
         }

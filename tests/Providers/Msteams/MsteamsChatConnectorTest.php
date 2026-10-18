@@ -18,6 +18,8 @@ use Thinwrap\Notifications\Providers\Msteams\MsteamsConfig;
 
 final class MsteamsChatConnectorTest extends TestCase
 {
+    private const WORKFLOWS_URL = 'https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=secret';
+
     private MockClient $mockClient;
 
     private Psr17Factory $factory;
@@ -77,10 +79,106 @@ final class MsteamsChatConnectorTest extends TestCase
         }
     }
 
-    private function buildConnector(): MsteamsChatConnector
+    public function testWorkflows202EmptyBodyIsSuccess(): void
+    {
+        // Logic Apps Request trigger without a Response action: 202 ACCEPTED, no body.
+        $this->mockClient->addResponse(new Response(202));
+
+        $result = $this->buildConnector(self::WORKFLOWS_URL)->send(new ChatSendInput(to: null, body: 'x'));
+        $this->assertTrue($result->success);
+        $this->assertSame(ChatStatus::Sent, $result->status);
+        $this->assertNull($result->providerMessageId);
+    }
+
+    public function testLegacyHost202EmptyBodyIsSuccess(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+
+        $result = $this->buildConnector()->send(new ChatSendInput(to: null, body: 'x'));
+        $this->assertTrue($result->success);
+    }
+
+    public function testWorkflows200EmptyBodyIsSuccess(): void
+    {
+        $this->mockClient->addResponse(new Response(200));
+
+        $result = $this->buildConnector(self::WORKFLOWS_URL)->send(new ChatSendInput(to: null, body: 'x'));
+        $this->assertTrue($result->success);
+    }
+
+    public function testPowerPlatform200EmptyBodyIsSuccess(): void
+    {
+        $this->mockClient->addResponse(new Response(200));
+
+        $result = $this->buildConnector(
+            'https://default0123.ab.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/abc/triggers/manual/paths/invoke?api-version=1&sig=secret',
+        )->send(new ChatSendInput(to: null, body: 'x'));
+        $this->assertTrue($result->success);
+    }
+
+    public function testLegacyTenantHost200OneIsSuccess(): void
+    {
+        $this->mockClient->addResponse((new Response(200))->withBody($this->factory->createStream("1\n")));
+
+        $result = $this->buildConnector('https://contoso.webhook.office.com/webhookb2/abc/IncomingWebhook/def/ghi')
+            ->send(new ChatSendInput(to: null, body: 'x'));
+        $this->assertTrue($result->success);
+    }
+
+    public function testLegacyHost200OtherTextIsProviderUnavailable(): void
+    {
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('Microsoft Teams endpoint returned an unexpected response'))
+        );
+
+        try {
+            $this->buildConnector('https://contoso.webhook.office.com/webhookb2/abc/IncomingWebhook/def/ghi')
+                ->send(new ChatSendInput(to: null, body: 'x'));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::ProviderUnavailable, $err->providerCode);
+            $this->assertSame(502, $err->statusCode);
+        }
+    }
+
+    public function testEmbeddedHttpErrorOn200MapsEmbeddedStatus(): void
+    {
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream(
+                'Webhook message delivery failed with error: Microsoft Teams endpoint returned HTTP error 413 with ContextId tcid=0,server=msgapi,cv=abc',
+            ))
+        );
+
+        try {
+            $this->buildConnector()->send(new ChatSendInput(to: null, body: 'x'));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(413, $err->statusCode);
+            $this->assertSame(ProviderCode::Unknown, $err->providerCode);
+        }
+    }
+
+    public function testEmbeddedHttp429On200MapsRateLimited(): void
+    {
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream(
+                'Microsoft Teams endpoint returned HTTP error 429 with ContextId tcid=0',
+            ))
+        );
+
+        try {
+            $this->buildConnector()->send(new ChatSendInput(to: null, body: 'x'));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::RateLimited, $err->providerCode);
+            $this->assertSame(429, $err->statusCode);
+        }
+    }
+
+    private function buildConnector(string $webhookUrl = 'https://outlook.office.com/webhook/abc/IncomingWebhook/def/ghi'): MsteamsChatConnector
     {
         return new MsteamsChatConnector(
-            new MsteamsConfig(webhookUrl: 'https://outlook.office.com/webhook/abc/IncomingWebhook/def/ghi'),
+            new MsteamsConfig(webhookUrl: $webhookUrl),
             $this->mockClient,
             $this->factory,
             $this->factory,

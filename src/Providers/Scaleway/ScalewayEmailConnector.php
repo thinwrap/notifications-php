@@ -52,6 +52,7 @@ final class ScalewayEmailConnector extends BaseConnector implements EmailConnect
     private const DEFAULT_ATTACHMENT_MIME = 'application/octet-stream';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly ScalewayConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -107,9 +108,12 @@ final class ScalewayEmailConnector extends BaseConnector implements EmailConnect
 
     private function resolveEndpoint(): string
     {
-        $region = ($this->config->region ?? ScalewayRegion::FrPar)->value;
+        // A closed enum, so the path segment is always a well-formed Scaleway
+        // region name; which regions serve Transactional Email is Scaleway's
+        // call (today only fr-par), not validated here.
+        $region = $this->config->region ?? ScalewayRegion::FrPar;
 
-        return self::API_BASE . '/regions/' . $region . '/emails';
+        return self::API_BASE . '/regions/' . $region->value . '/emails';
     }
 
     /**

@@ -26,14 +26,19 @@ use Thinwrap\Notifications\Util\Passthrough;
  * `messages: [...]` array even for one message; each message has
  * `destinations: [{ to }]`. The connector wraps a single message + single
  * destination automatically. Camel-case wire keys (`callbackData`, `notifyUrl`,
- * `validityPeriod`, `bulkId`, `sendingDateTime`, `messageId`) written
- * explicitly per casing-locality.
+ * `validityPeriod`, `bulkId`, `sendAt`, `messageId`) written explicitly per
+ * casing-locality.
+ *
+ * Infobip accepts a send with HTTP 200 even when it rejects the message up
+ * front; the verdict is `messages[0].status` (group 5 / `REJECTED`), so a
+ * 2xx is only a success once that status is checked.
  */
 final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInterface
 {
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly InfobipConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -45,6 +50,7 @@ final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInt
 
     public function send(SmsSendInput $input): SmsSendResult
     {
+        $this->assertBaseUrlIsAHostname();
         $from = $input->from ?? $this->config->from;
         if ($from === null || $from === '') {
             throw new ConnectorError(
@@ -71,19 +77,24 @@ final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInt
                 $messageEntry['notifyContentType'] = $input->notifyContentType;
             }
             if ($input->validityPeriod !== null) {
-                $messageEntry['validityPeriod'] = $input->validityPeriod;
-            }
-            if ($input->validityPeriodTimeUnit !== null) {
-                $messageEntry['validityPeriodTimeUnit'] = $input->validityPeriodTimeUnit;
+                $messageEntry['validityPeriod'] = self::validityPeriodMinutes(
+                    $input->validityPeriod,
+                    $input->validityPeriodTimeUnit,
+                );
             }
             if ($input->flash !== null) {
                 $messageEntry['flash'] = $input->flash;
             }
             if ($input->language !== null) {
-                $messageEntry['language'] = $input->language;
+                $messageEntry['language'] = ['languageCode' => $input->language];
             }
             if ($input->transliteration !== null) {
                 $messageEntry['transliteration'] = $input->transliteration;
+            }
+            // v2 schedules per message (`messages[].sendAt`); there is no
+            // request-level send time.
+            if ($input->scheduleSettings !== null && isset($input->scheduleSettings['sendAt'])) {
+                $messageEntry['sendAt'] = $input->scheduleSettings['sendAt'];
             }
         }
 
@@ -92,9 +103,6 @@ final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInt
         if ($input instanceof InfobipNarrowedInput) {
             if ($input->bulkId !== null) {
                 $body['bulkId'] = $input->bulkId;
-            }
-            if ($input->scheduleSettings !== null && isset($input->scheduleSettings['sendAt'])) {
-                $body['sendingDateTime'] = $input->scheduleSettings['sendAt'];
             }
         }
 
@@ -124,6 +132,12 @@ final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInt
 
         /** @var array<string,mixed>|null $parsed */
         $parsed = $this->decodeJson($response);
+
+        $rejection = $this->mapRejectedStatus($parsed, $status);
+        if ($rejection !== null) {
+            throw $rejection;
+        }
+
         $messageId = null;
         if (
             is_array($parsed)
@@ -143,6 +157,106 @@ final class InfobipSmsConnector extends BaseConnector implements SmsConnectorInt
             providerMessageId: $messageId,
             raw: $parsed,
         );
+    }
+
+    /**
+     * `validityPeriod` on `/sms/2/text/advanced` is an integer number of
+     * minutes (v2 has no `validityPeriodTimeUnit`), so another unit is
+     * converted here, rounding up so the message never expires earlier than
+     * requested.
+     */
+    private static function validityPeriodMinutes(int $period, ?string $unit): int
+    {
+        return match (strtoupper($unit ?? 'MINUTES')) {
+            'MINUTES' => $period,
+            'SECONDS' => intdiv($period + 59, 60),
+            'HOURS'   => $period * 60,
+            default   => throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: "Infobip validityPeriodTimeUnit must be SECONDS, MINUTES or HOURS; got '{$unit}'.",
+                statusCode: 400,
+            ),
+        };
+    }
+
+    /**
+     * Status group 5 (`REJECTED`) means Infobip or the operator refused the
+     * message at submission — nothing will be delivered, so the 200 is a
+     * failure. Classified by the status name.
+     *
+     * @param array<string,mixed>|null $parsed
+     */
+    private function mapRejectedStatus(?array $parsed, int $httpStatus): ?ConnectorError
+    {
+        $first = is_array($parsed) && isset($parsed['messages']) && is_array($parsed['messages'])
+            ? ($parsed['messages'][0] ?? null)
+            : null;
+        $vendorStatus = is_array($first) && isset($first['status']) && is_array($first['status'])
+            ? $first['status']
+            : null;
+        if ($vendorStatus === null) {
+            return null;
+        }
+
+        $groupId = $vendorStatus['groupId'] ?? null;
+        $groupName = $vendorStatus['groupName'] ?? null;
+        if ($groupId !== 5 && $groupName !== 'REJECTED') {
+            return null;
+        }
+
+        $name = isset($vendorStatus['name']) && is_string($vendorStatus['name']) ? $vendorStatus['name'] : '';
+        $description = isset($vendorStatus['description']) && is_string($vendorStatus['description'])
+            ? $vendorStatus['description']
+            : '';
+
+        $isRecipient = false;
+        foreach (['DESTINATION', 'PREFIX', 'MISSING_TO', 'DND', 'NOT_REGISTERED'] as $marker) {
+            if (str_contains($name, $marker)) {
+                $isRecipient = true;
+                break;
+            }
+        }
+
+        $providerCode = match (true) {
+            $isRecipient                           => ProviderCode::InvalidRecipient,
+            $name === 'REJECTED_FLOODING_FILTER'   => ProviderCode::RateLimited,
+            default                                => ProviderCode::InvalidRequest,
+        };
+
+        $label = $name !== '' ? $name : 'REJECTED';
+
+        return new ConnectorError(
+            providerCode: $providerCode,
+            providerMessage: $description !== '' ? "Infobip {$label}: {$description}" : "Infobip {$label}",
+            cause: ['raw' => $parsed, 'retryAfter' => null],
+            statusCode: $httpStatus,
+        );
+    }
+
+    /**
+     * `baseUrl` is the account's host (`xyz123.api.infobip.com`) and receives
+     * the `Authorization: App <apiKey>` request, so anything beyond a bare DNS
+     * hostname — a scheme, path, port, userinfo or trailing slash — could send
+     * the key elsewhere. The value is not echoed: a mistyped config can hold
+     * the key itself.
+     */
+    private function assertBaseUrlIsAHostname(): void
+    {
+        $host = $this->config->baseUrl;
+        $valid = $host !== '' && strlen($host) <= 253;
+        foreach ($valid ? explode('.', $host) : [] as $label) {
+            if (preg_match('/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/D', $label) !== 1) {
+                $valid = false;
+                break;
+            }
+        }
+        if (!$valid) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'Infobip baseUrl must be a bare hostname such as xyz123.api.infobip.com (no scheme, path, port or trailing slash)',
+                statusCode: 400,
+            );
+        }
     }
 
     /**

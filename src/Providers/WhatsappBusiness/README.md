@@ -17,7 +17,7 @@ $result = $chat->send(new ChatSendInput(to: null, body: 'Hello, world!'));
 
 ## Configuration
 
-`WhatsappBusinessConfig(accessToken: string, phoneNumberId: string)`
+`WhatsappBusinessConfig(accessToken: string, phoneNumberId: string, graphApiVersion: string = 'v21.0')`
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
@@ -37,20 +37,23 @@ System-user access token from Meta Business → System Users. Sent as `Authoriza
 
 ## Error mapping
 
-Meta error-`code` precedence is checked before HTTP status:
+Meta's error `code` is checked first; the HTTP status applies only when the code is not listed.
 
-| Vendor HTTP | Vendor signal | `ProviderCode` |
-|---|---|---|
-| (any) | error `code` `190` | `AuthFailed` |
-| 401 | (any) | `AuthFailed` |
-| (any) | error `code` `131008` / `131026` / `131047` | `InvalidRecipient` |
-| (any) | error `code` `80007` / `80004` / `4` | `RateLimited` |
-| 429 | (any) | `RateLimited` |
-| (any) | error `code` `131051` / `131056` | `InvalidRequest` |
-| 400 | (any) | `InvalidRequest` |
-| (any) | error `code` `1` / `2` | `ProviderUnavailable` |
-| 5xx | (any) | `ProviderUnavailable` |
-| other | (any) | `Unknown` |
+| Error `code` (Cloud API) | `ProviderCode` |
+|---|---|
+| `0`, `3`, `10`, `190` (expired token), `200`–`299`, `368`, `131005`, `131031` | `AuthFailed` |
+| `4`, `80007`, `130429`, `131048` (spam rate limit), `131056` (sender→recipient pair rate limit) | `RateLimited` |
+| `131021` (sender is the recipient), `131026` (undeliverable to this recipient) | `InvalidRecipient` |
+| `100`, `131008` (missing parameter), `131009`, `131042`, `131045`, `131047` (24-hour window closed — send a template), `131051`, `132000`, `132001`, `132012`, `133010` (the business sender number is not registered) | `InvalidRequest` |
+| `1`, `2`, `131000`, `131016`, `131057` | `ProviderUnavailable` |
+
+| HTTP (code not listed) | `ProviderCode` |
+|---|---|
+| 401 / 403 | `AuthFailed` |
+| 429 | `RateLimited` |
+| 400 | `InvalidRequest` |
+| 5xx | `ProviderUnavailable` |
+| other | `Unknown` |
 
 The error `code`/`message` are read from the JSON `error` object. Before dispatch, a request with no `to` (or a `template`/`interactive` type missing its payload) raises `InvalidRequest` (400) locally.
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Slack;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Stub config for Slack chat. Real shape lands in a later release.
  *
@@ -12,5 +14,7 @@ namespace Thinwrap\Notifications\Providers\Slack;
  */
 final readonly class SlackConfig
 {
-    public function __construct(public string $webhookUrl) {}
+    use RedactsSecrets;
+
+    public function __construct(#[\SensitiveParameter] public string $webhookUrl) {}
 }

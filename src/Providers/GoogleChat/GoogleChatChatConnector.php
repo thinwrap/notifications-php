@@ -37,6 +37,7 @@ final class GoogleChatChatConnector extends BaseConnector implements ChatConnect
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly GoogleChatConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

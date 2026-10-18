@@ -8,7 +8,9 @@ use Thinwrap\Notifications\DTO\Sms\SmsSendInput;
 
 /**
  * Infobip-narrowed input. Below-baseline fields (under the ≥90%-of-providers threshold). `$scheduleSettings` allows
- * `['sendAt' => 'ISO-8601']`.
+ * `['sendAt' => 'ISO-8601']` (sent as `messages[0].sendAt`). `$language` is the language code, sent as
+ * `language: {languageCode}`. `$validityPeriod` is in minutes on the wire; `$validityPeriodTimeUnit`
+ * (`SECONDS` / `MINUTES` / `HOURS`) only tells the connector how to convert it.
  */
 final readonly class InfobipNarrowedInput extends SmsSendInput
 {

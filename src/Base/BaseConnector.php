@@ -25,6 +25,11 @@ use Thinwrap\Notifications\Exception\ConnectorError;
  * inspects status + body and calls `mapVendorError()` to construct a
  * `ConnectorError`. The wrapper holds no mutable state — no caches, no token
  * storage, no shared HTTP-client singleton.
+ *
+ * Every parameter that can hold a credential (URL, headers, body, the built
+ * request) is `#[\SensitiveParameter]`: with `zend.exception_ignore_args=0`
+ * (the default when no php.ini is loaded, e.g. official Docker images) PHP
+ * records call arguments in exception traces, which error trackers capture.
  */
 abstract class BaseConnector
 {
@@ -114,33 +119,56 @@ abstract class BaseConnector
 
     protected function getRequestFactory(): RequestFactoryInterface
     {
-        return $this->requestFactory ?? Psr17FactoryDiscovery::findRequestFactory();
+        try {
+            return $this->requestFactory ?? Psr17FactoryDiscovery::findRequestFactory();
+        } catch (\Http\Discovery\Exception\NotFoundException $err) {
+            throw self::noPsr17Factory($err);
+        }
     }
 
     protected function getStreamFactory(): StreamFactoryInterface
     {
-        return $this->streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
+        try {
+            return $this->streamFactory ?? Psr17FactoryDiscovery::findStreamFactory();
+        } catch (\Http\Discovery\Exception\NotFoundException $err) {
+            throw self::noPsr17Factory($err);
+        }
+    }
+
+    /** Same treatment as a missing PSR-18 client in getClient(). */
+    private static function noPsr17Factory(\Throwable $err): ConnectorError
+    {
+        return new ConnectorError(
+            providerCode: ProviderCode::ProviderUnavailable,
+            providerMessage: 'No PSR-17 HTTP factory found',
+            cause: [
+                'raw' => ['exception' => $err::class, 'message' => $err->getMessage()],
+                'retryAfter' => null,
+            ],
+        );
     }
 
     /**
      * @param array<string, string> $headers
      */
-    protected function sendGet(string $url, array $headers = []): ResponseInterface
+    protected function sendGet(#[\SensitiveParameter] string $url, #[\SensitiveParameter] array $headers = []): ResponseInterface
     {
-        $request = $this->getRequestFactory()->createRequest('GET', $url);
-        foreach (array_merge($this->getAuthHeaders(), $headers) as $name => $value) {
-            $request = $request->withHeader($name, $value);
-        }
-
-        return $this->dispatch($request);
+        return $this->dispatch($this->buildRequest('GET', $url, array_merge($this->getAuthHeaders(), $headers)));
     }
 
     /**
      * @param array<string, mixed> $body
      * @param array<string, string> $headers
      */
-    protected function sendPostJson(string $url, array $body, array $headers = [], ?string $protocolVersion = null): ResponseInterface
-    {
+    protected function sendPostJson(
+        #[\SensitiveParameter]
+        string $url,
+        #[\SensitiveParameter]
+        array $body,
+        #[\SensitiveParameter]
+        array $headers = [],
+        ?string $protocolVersion = null,
+    ): ResponseInterface {
         try {
             $serialized = json_encode($body, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         } catch (\JsonException $err) {
@@ -168,26 +196,22 @@ abstract class BaseConnector
      *
      * @param array<string, string> $headers
      */
-    protected function sendPostJsonRaw(string $url, string $rawJsonBody, array $headers = [], ?string $protocolVersion = null): ResponseInterface
-    {
-        $request = $this->getRequestFactory()
-            ->createRequest('POST', $url)
-            ->withBody($this->getStreamFactory()->createStream($rawJsonBody));
-
-        if ($protocolVersion !== null) {
-            $request = $request->withProtocolVersion($protocolVersion);
-        }
-
+    protected function sendPostJsonRaw(
+        #[\SensitiveParameter]
+        string $url,
+        #[\SensitiveParameter]
+        string $rawJsonBody,
+        #[\SensitiveParameter]
+        array $headers = [],
+        ?string $protocolVersion = null,
+    ): ResponseInterface {
         $finalHeaders = array_merge(
             ['Content-Type' => 'application/json'],
             $this->getAuthHeaders(),
             $headers,
         );
-        foreach ($finalHeaders as $name => $value) {
-            $request = $request->withHeader($name, $value);
-        }
 
-        return $this->dispatch($request);
+        return $this->dispatch($this->buildRequest('POST', $url, $finalHeaders, $rawJsonBody, $protocolVersion));
     }
 
     /**
@@ -198,23 +222,21 @@ abstract class BaseConnector
      * @param array<string, scalar|array<int, scalar>|null> $form
      * @param array<string, string> $headers
      */
-    protected function sendPostForm(string $url, array $form, array $headers = []): ResponseInterface
-    {
-        $serialized = self::serializeForm($form);
-        $request = $this->getRequestFactory()
-            ->createRequest('POST', $url)
-            ->withBody($this->getStreamFactory()->createStream($serialized));
-
+    protected function sendPostForm(
+        #[\SensitiveParameter]
+        string $url,
+        #[\SensitiveParameter]
+        array $form,
+        #[\SensitiveParameter]
+        array $headers = [],
+    ): ResponseInterface {
         $finalHeaders = array_merge(
             ['Content-Type' => 'application/x-www-form-urlencoded'],
             $this->getAuthHeaders(),
             $headers,
         );
-        foreach ($finalHeaders as $name => $value) {
-            $request = $request->withHeader($name, $value);
-        }
 
-        return $this->dispatch($request);
+        return $this->dispatch($this->buildRequest('POST', $url, $finalHeaders, self::serializeForm($form)));
     }
 
     /**
@@ -225,30 +247,124 @@ abstract class BaseConnector
      * @param list<array{name:string,contents:string,filename?:string,contentType?:string}> $parts
      * @param array<string, string> $headers
      */
-    protected function sendPostMultipart(string $url, array $parts, array $headers = []): ResponseInterface
-    {
+    protected function sendPostMultipart(
+        #[\SensitiveParameter]
+        string $url,
+        #[\SensitiveParameter]
+        array $parts,
+        #[\SensitiveParameter]
+        array $headers = [],
+    ): ResponseInterface {
         $built = $this->buildMultipartBody($parts);
-
-        $request = $this->getRequestFactory()
-            ->createRequest('POST', $url)
-            ->withBody($this->getStreamFactory()->createStream($built['body']));
 
         $finalHeaders = array_merge(
             ['Content-Type' => 'multipart/form-data; boundary=' . $built['boundary']],
             $this->getAuthHeaders(),
             $headers,
         );
-        foreach ($finalHeaders as $name => $value) {
-            $request = $request->withHeader($name, $value);
+
+        return $this->dispatch($this->buildRequest('POST', $url, $finalHeaders, $built['body']));
+    }
+
+    /**
+     * Checked here rather than left to the PSR-7 implementation: Nyholm's
+     * validator lets a single trailing LF through, so an API key read with its
+     * newline would otherwise be sent (and could split the header). CR, LF and
+     * NUL are refused in names and values; the error names the header at
+     * most, never the value. Non-string scalars (from `_passthrough.headers`)
+     * are sent as strings, as PSR-7 `withHeader` accepts them; anything else
+     * is not a header value.
+     *
+     * @param array<array-key,mixed> $headers
+     *
+     * @return array<string,string>
+     */
+    private static function checkHeaders(#[\SensitiveParameter] array $headers): array
+    {
+        $out = [];
+        foreach ($headers as $name => $value) {
+            $name = (string) $name;
+            $safeName = strpbrk($name, "\r\n\0") === false;
+            if (is_bool($value)) {
+                $value = $value ? 'true' : 'false';
+            } elseif (is_int($value) || is_float($value)) {
+                $value = (string) $value;
+            }
+            if (!is_string($value)) {
+                throw self::invalidHeader($safeName ? "header '{$name}' must have a string or scalar value" : 'a header must have a string or scalar value');
+            }
+            if (!$safeName || strpbrk($value, "\r\n\0") !== false) {
+                throw self::invalidHeader($safeName ? "header '{$name}' contains CR, LF or NUL" : 'a header name contains CR, LF or NUL');
+            }
+            $out[$name] = $value;
         }
 
-        return $this->dispatch($request);
+        return $out;
+    }
+
+    private static function invalidHeader(string $detail): ConnectorError
+    {
+        return new ConnectorError(
+            providerCode: ProviderCode::InvalidRequest,
+            providerMessage: "Invalid request header: {$detail}",
+            cause: ['raw' => null, 'retryAfter' => null],
+        );
+    }
+
+    /**
+     * Build a PSR-7 request, turning a PSR-7 rejection of the URL or a header
+     * into a `ConnectorError`.
+     *
+     * PSR-7 implementations throw `\InvalidArgumentException` with the offending
+     * value in the message (Guzzle: `"<value>" is not valid header value.`,
+     * `Unable to parse URI: <uri>`; Nyholm likewise). The value is usually a
+     * credential — an API key read from the environment with a trailing
+     * newline, a Telegram token in the path, a webhook URL — so neither the
+     * message nor the previous exception is kept: only the exception class.
+     *
+     * @param array<string, string> $headers
+     */
+    protected function buildRequest(
+        string $method,
+        #[\SensitiveParameter]
+        string $url,
+        #[\SensitiveParameter]
+        array $headers,
+        #[\SensitiveParameter]
+        ?string $body = null,
+        ?string $protocolVersion = null,
+    ): RequestInterface {
+        $headers = self::checkHeaders($headers);
+
+        try {
+            $request = $this->getRequestFactory()->createRequest($method, $url);
+            if ($body !== null) {
+                $request = $request->withBody($this->getStreamFactory()->createStream($body));
+            }
+            if ($protocolVersion !== null) {
+                $request = $request->withProtocolVersion($protocolVersion);
+            }
+            foreach ($headers as $name => $value) {
+                $request = $request->withHeader($name, $value);
+            }
+        } catch (\InvalidArgumentException $err) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'Invalid request URL or header value',
+                cause: [
+                    'raw' => ['exception' => $err::class],
+                    'retryAfter' => null,
+                ],
+            );
+        }
+
+        return $request;
     }
 
     /**
      * @param array<string, scalar|array<int, scalar>|null> $form
      */
-    private static function serializeForm(array $form): string
+    private static function serializeForm(#[\SensitiveParameter] array $form): string
     {
         $pairs = [];
         foreach ($form as $key => $value) {
@@ -270,7 +386,7 @@ abstract class BaseConnector
     /**
      * @param scalar $value
      */
-    private static function stringifyScalar(mixed $value): string
+    private static function stringifyScalar(#[\SensitiveParameter] mixed $value): string
     {
         if (is_bool($value)) {
             return $value ? 'true' : 'false';
@@ -284,7 +400,7 @@ abstract class BaseConnector
      *
      * @return array{boundary:string,body:string}
      */
-    private function buildMultipartBody(array $parts): array
+    private function buildMultipartBody(#[\SensitiveParameter] array $parts): array
     {
         $boundary = bin2hex(random_bytes(16));
         $buffer = '';
@@ -309,7 +425,7 @@ abstract class BaseConnector
      * Sanitize a quoted Content-Disposition parameter (`name`/`filename`) before
      * it is interpolated into a multipart header line. Strips CR/LF (header
      * injection) and backslash-escapes `"` and `\` so a value cannot break out
-     * of the surrounding quotes (W1). Mirrors the browser/RFC 2388 convention.
+     * of the surrounding quotes. Mirrors the browser/RFC 2388 convention.
      */
     private static function sanitizeHeaderParam(string $value): string
     {
@@ -320,7 +436,7 @@ abstract class BaseConnector
 
     /**
      * Sanitize an unquoted header value (`Content-Type`) — strip CR/LF so an
-     * attacker-controlled content type cannot inject additional header lines (W1).
+     * attacker-controlled content type cannot inject additional header lines.
      */
     private static function sanitizeHeaderValue(string $value): string
     {
@@ -334,7 +450,7 @@ abstract class BaseConnector
      * (SES/SNS SigV4 sign exact bytes) still funnel transport errors through
      * this single hardened path instead of re-implementing the catch.
      */
-    protected function dispatch(RequestInterface $request): ResponseInterface
+    protected function dispatch(#[\SensitiveParameter] RequestInterface $request): ResponseInterface
     {
         try {
             return $this->getClient()->sendRequest($request);

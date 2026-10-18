@@ -74,6 +74,39 @@ final class SinchSmsConnectorTest extends TestCase
         $this->assertStringStartsWith('https://eu.sms.api.sinch.com/xms/v1/SP1/batches', (string) $request->getUri());
     }
 
+    /** Sinch SMS API reference base URLs: `https://{region}.sms.api.sinch.com` for us, eu, au, br, ca. */
+    public function testEveryDocumentedRegionBuildsItsHost(): void
+    {
+        foreach ([SinchRegion::Au, SinchRegion::Br, SinchRegion::Ca] as $i => $region) {
+            $this->mockClient->addResponse($this->successResponse());
+            (new SinchSmsConnector(
+                new SinchConfig(servicePlanId: 'SP1', apiToken: 't', from: 'sender', region: $region),
+                $this->mockClient,
+                $this->factory,
+                $this->factory,
+            ))->send($this->basicInput());
+
+            $this->assertStringStartsWith("https://{$region->value}.sms.api.sinch.com/xms/v1/SP1/batches", (string) $this->mockClient->getRequests()[$i]->getUri());
+        }
+    }
+
+    /** A config value placed in the URL path is escaped, so `/`, `?` and `#` cannot re-point the request. */
+    public function testServicePlanIdIsPathEscaped(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        (new SinchSmsConnector(
+            new SinchConfig(servicePlanId: '../other?x=1#', apiToken: 't', from: 'sender'),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        ))->send($this->basicInput());
+
+        $this->assertSame(
+            'https://us.sms.api.sinch.com/xms/v1/..%2Fother%3Fx%3D1%23/batches',
+            (string) $this->mockClient->getRequests()[0]->getUri(),
+        );
+    }
+
     public function testBearerAuth(): void
     {
         $this->mockClient->addResponse($this->successResponse());

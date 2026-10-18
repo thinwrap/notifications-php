@@ -31,19 +31,21 @@ final class TwilioSmsConnector extends BaseConnector implements SmsConnectorInte
 {
     public readonly string $id;
 
-    /** @var array<string,string> */
-    private const BASE_HOSTS = [
-        'us1' => 'api.twilio.com',
-        'us2' => 'api.us2.twilio.com',
-        'ie1' => 'api.ie1.twilio.com',
-        'au1' => 'api.au1.twilio.com',
-        'br1' => 'api.br1.twilio.com',
-        'de1' => 'api.de1.twilio.com',
-        'jp1' => 'api.jp1.twilio.com',
-        'sg1' => 'api.sg1.twilio.com',
+    /**
+     * Default edge per non-US processing region, from Twilio's legacy-regions
+     * mapping (`api.dublin.ie1.twilio.com`, `api.sydney.au1.twilio.com`). "The
+     * edge location name … is a required part of the hostname for non-US
+     * regions." Twilio's SDKs ship no such map, so this is our documented choice.
+     *
+     * @var array<string,TwilioEdge>
+     */
+    private const DEFAULT_EDGES = [
+        'ie1' => TwilioEdge::Dublin,
+        'au1' => TwilioEdge::Sydney,
     ];
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly TwilioConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -55,6 +57,7 @@ final class TwilioSmsConnector extends BaseConnector implements SmsConnectorInte
 
     public function send(SmsSendInput $input): SmsSendResult
     {
+        $host = $this->host();
         $from = $input->from ?? $this->config->from;
         $messagingServiceSid = $input instanceof TwilioNarrowedInput ? $input->messagingServiceSid : null;
 
@@ -159,9 +162,9 @@ final class TwilioSmsConnector extends BaseConnector implements SmsConnectorInte
             }
         }
 
-        $regionValue = $this->config->region->value ?? 'us1';
-        $host = self::BASE_HOSTS[$regionValue];
-        $url = "https://{$host}/2010-04-01/Accounts/{$this->config->accountSid}/Messages.json";
+        // Escaped so a stray `/`, `?` or `#` in the SID cannot re-point the
+        // credentialed request at another resource.
+        $url = "https://{$host}/2010-04-01/Accounts/" . rawurlencode($this->config->accountSid) . '/Messages.json';
 
         $response = $this->sendPostForm($url, $form, $mergedHeaders);
 
@@ -182,6 +185,36 @@ final class TwilioSmsConnector extends BaseConnector implements SmsConnectorInte
             providerMessageId: $messageId,
             raw: $parsed,
         );
+    }
+
+    /**
+     * Twilio host format: `PRODUCT.twilio.com` for US processing, else
+     * `PRODUCT.EDGE.REGION.twilio.com`; us1 with an explicit edge is
+     * `api.{edge}.us1.twilio.com`, as Twilio's SDKs build it.
+     */
+    private function host(): string
+    {
+        $region = $this->config->region ?? TwilioRegion::Us1;
+        if ($region === TwilioRegion::Us1) {
+            return $this->config->edge === null
+                ? 'api.twilio.com'
+                : "api.{$this->config->edge->value}.us1.twilio.com";
+        }
+
+        // Only ie1 and au1 are non-US processing regions; the deprecated cases
+        // are rejected even with an edge, since `api.{edge}.{legacy}` is no
+        // documented host and the request would carry the credentials.
+        if (!isset(self::DEFAULT_EDGES[$region->value])) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: "Twilio region '{$region->value}' is an edge location, not a REST processing region; use region us1 (optionally with a TwilioEdge), ie1 or au1",
+                statusCode: 400,
+            );
+        }
+
+        $edge = $this->config->edge ?? self::DEFAULT_EDGES[$region->value];
+
+        return "api.{$edge->value}.{$region->value}.twilio.com";
     }
 
     /**

@@ -141,6 +141,158 @@ final class SendgridEmailConnectorTest extends TestCase
         $this->assertSame('inline', $att['disposition']);
     }
 
+    /**
+     * SendGrid v3 mail/send (twilio/sendgrid-oai tsg_mail_v3.json): top-level
+     * `template_id`, `send_at`, `batch_id`, `asm {group_id, groups_to_display}`,
+     * `mail_settings`, `tracking_settings`, `ip_pool_name`, `categories`
+     * ("uniqueItems"), and `personalizations[].dynamic_template_data`.
+     */
+    public function testNarrowedFieldsMapToV3WireNames(): void
+    {
+        $this->mockClient->addResponse(new Response(202, ['X-Message-Id' => 'sg-1']));
+        $connector = $this->buildConnector();
+
+        $connector->send(new \Thinwrap\Notifications\Providers\Sendgrid\SendgridNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+            tags: ['welcome', 'onboarding'],
+            templateId: 'd-123',
+            dynamicTemplateData: ['name' => 'Ada'],
+            sendAt: 1_790_000_000,
+            batchId: 'batch-1',
+            asm: ['group_id' => 42, 'groups_to_display' => [42, 43]],
+            mailSettings: ['sandbox_mode' => ['enable' => true]],
+            trackingSettings: ['click_tracking' => ['enable' => false]],
+            ipPoolName: 'transactional',
+            categories: ['onboarding', 'q3'],
+        ));
+
+        /** @var array<string,mixed> $body */
+        $body = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('d-123', $body['template_id']);
+        $this->assertSame(['name' => 'Ada'], $body['personalizations'][0]['dynamic_template_data']);
+        $this->assertSame([['email' => 'recipient@example.com']], $body['personalizations'][0]['to']);
+        $this->assertSame(1_790_000_000, $body['send_at']);
+        $this->assertSame('batch-1', $body['batch_id']);
+        $this->assertSame(['group_id' => 42, 'groups_to_display' => [42, 43]], $body['asm']);
+        $this->assertSame(['sandbox_mode' => ['enable' => true]], $body['mail_settings']);
+        $this->assertSame(['click_tracking' => ['enable' => false]], $body['tracking_settings']);
+        $this->assertSame('transactional', $body['ip_pool_name']);
+        $this->assertSame(['welcome', 'onboarding', 'q3'], $body['categories']);
+    }
+
+    /** OAI spec: dynamic_template_data, asm, mail_settings and tracking_settings are objects. */
+    public function testEmptyObjectFieldsAreSentAsJsonObjects(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+
+        $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Sendgrid\SendgridNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'S',
+            text: 'B',
+            dynamicTemplateData: [],
+            mailSettings: [],
+            trackingSettings: [],
+        ));
+
+        $raw = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertStringContainsString('"dynamic_template_data":{}', $raw);
+        $this->assertStringContainsString('"mail_settings":{}', $raw);
+        $this->assertStringContainsString('"tracking_settings":{}', $raw);
+    }
+
+    /** OAI spec: categories `maxItems: 10`, `uniqueItems: true`; sendgrid-php: "can not exceed 10". */
+    public function testMoreThanTenCategoriesIsRejectedBeforeSending(): void
+    {
+        try {
+            $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Sendgrid\SendgridNarrowedInput(
+                from: 'sender@example.com',
+                to: 'recipient@example.com',
+                subject: 'S',
+                text: 'B',
+                tags: ['t1', 't2', 't3'],
+                categories: ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8'],
+            ));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            $this->assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
+    /** OAI `maxLength: 255` counts characters (JSON Schema), not UTF-8 bytes. */
+    public function testCategoryLengthIsCountedInCharacters(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+        $this->buildConnector()->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', tags: [str_repeat('я', 255)]));
+        $this->assertCount(1, $this->mockClient->getRequests());
+
+        try {
+            $this->buildConnector()->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', tags: [str_repeat('я', 256)]));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            $this->assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+        }
+        $this->assertCount(1, $this->mockClient->getRequests());
+    }
+
+    /** `uniqueItems` compares strings exactly: "1", "01" and "1.0" are three categories. */
+    public function testNumericLookingCategoriesAreNotMerged(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+
+        $this->buildConnector()->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', tags: ['1', '01', '1.0', '1']));
+
+        $this->assertStringContainsString('"categories":["1","01","1.0"]', (string) $this->mockClient->getRequests()[0]->getBody());
+    }
+
+    public function testBaseTagsAreDeduplicated(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+
+        $this->buildConnector()->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', tags: ['a', 'a', 'b']));
+
+        $this->assertStringContainsString('"categories":["a","b"]', (string) $this->mockClient->getRequests()[0]->getBody());
+    }
+
+    /** OAI spec: top-level `subject` has `minLength: 1`; a dynamic template supplies its own. */
+    public function testEmptySubjectIsOmittedOnATemplateSend(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+
+        $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Sendgrid\SendgridNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: '',
+            templateId: 'd-123',
+        ));
+
+        $this->assertStringNotContainsString('"subject"', (string) $this->mockClient->getRequests()[0]->getBody());
+    }
+
+    public function testUnsetNarrowedFieldsAreNotSent(): void
+    {
+        $this->mockClient->addResponse(new Response(202));
+        $connector = $this->buildConnector();
+
+        $connector->send(new \Thinwrap\Notifications\Providers\Sendgrid\SendgridNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+        ));
+
+        /** @var array<string,mixed> $body */
+        $body = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        foreach (['template_id', 'send_at', 'batch_id', 'asm', 'mail_settings', 'tracking_settings', 'ip_pool_name', 'categories'] as $key) {
+            $this->assertArrayNotHasKey($key, $body);
+        }
+        $this->assertArrayNotHasKey('dynamic_template_data', $body['personalizations'][0]);
+    }
+
     public function testPassthroughHonored(): void
     {
         $this->mockClient->addResponse(new Response(202, ['X-Message-Id' => 'x']));

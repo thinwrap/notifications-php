@@ -121,6 +121,57 @@ final class TelegramChatConnectorTest extends TestCase
         }
     }
 
+    /**
+     * telegram-bot-api Client.cpp: USER_IS_BLOCKED → `403 "Forbidden: bot was
+     * blocked by the user"`; ClientManager.cpp: `401 "Unauthorized: invalid
+     * token specified"`; a malformed `/bot<token>/` path is 404 "Not Found".
+     *
+     * @return iterable<string,array{int,string,ProviderCode}>
+     */
+    public static function botApiStatuses(): iterable
+    {
+        yield '403 blocked by the user' => [403, 'Forbidden: bot was blocked by the user', ProviderCode::InvalidRecipient];
+        yield '403 kicked from the group' => [403, 'Forbidden: bot was kicked from the group chat', ProviderCode::InvalidRecipient];
+        yield '401 invalid token' => [401, 'Unauthorized: invalid token specified', ProviderCode::AuthFailed];
+        yield '404 malformed token path' => [404, 'Not Found', ProviderCode::AuthFailed];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('botApiStatuses')]
+    public function testBotApiStatusMapping(int $status, string $description, ProviderCode $expected): void
+    {
+        $this->mockClient->addResponse(
+            (new Response($status, ['Content-Type' => 'application/json']))
+                ->withBody($this->factory->createStream(json_encode(['ok' => false, 'error_code' => $status, 'description' => $description], JSON_THROW_ON_ERROR)))
+        );
+
+        try {
+            $this->buildConnector()->send(new \Thinwrap\Notifications\DTO\Chat\ChatSendInput(to: '123', body: 'x'));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame($expected, $err->providerCode);
+        }
+    }
+
+    /**
+     * Bot API: `https://api.telegram.org/bot<token>/METHOD_NAME`, token
+     * `123456:ABC-DEF…`. The colon stays literal; anything that could leave the
+     * path segment is escaped.
+     */
+    public function testBotTokenKeepsItsColonAndIsOtherwisePathEscaped(): void
+    {
+        $this->mockClient->addResponse(new Response(200, ['Content-Type' => 'application/json'], '{"ok":true,"result":{"message_id":1}}'));
+        $this->mockClient->addResponse(new Response(200, ['Content-Type' => 'application/json'], '{"ok":true,"result":{"message_id":2}}'));
+
+        foreach (['123456:ABC-def_x', '1:a/../evil?x#'] as $token) {
+            (new TelegramChatConnector(new TelegramConfig(botToken: $token), $this->mockClient, $this->factory, $this->factory))
+                ->send(new ChatSendInput(to: '1', body: 'x'));
+        }
+
+        $requests = $this->mockClient->getRequests();
+        $this->assertSame('https://api.telegram.org/bot123456:ABC-def_x/sendMessage', (string) $requests[0]->getUri());
+        $this->assertSame('https://api.telegram.org/bot1:a%2F..%2Fevil%3Fx%23/sendMessage', (string) $requests[1]->getUri());
+    }
+
     private function buildConnector(): TelegramChatConnector
     {
         return new TelegramChatConnector(

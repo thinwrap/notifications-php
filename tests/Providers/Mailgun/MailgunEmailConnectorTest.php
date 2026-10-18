@@ -151,6 +151,11 @@ final class MailgunEmailConnectorTest extends TestCase
         $this->assertStringContainsString('PDF-BYTES', $body);
     }
 
+    /**
+     * Mailgun send-inline-image sample: `-F inline=@email.jpg` with
+     * `<img src="cid:email.jpg">` — Mailgun derives the Content-ID from the
+     * inline part's filename.
+     */
     public function testAttachmentWithContentIdUsesInlineField(): void
     {
         $this->mockClient->addResponse($this->successResponse());
@@ -172,7 +177,7 @@ final class MailgunEmailConnectorTest extends TestCase
         $connector->send($input);
 
         $body = (string) $this->mockClient->getRequests()[0]->getBody();
-        $this->assertStringContainsString('name="inline"; filename="logo.png"', $body);
+        $this->assertStringContainsString('name="inline"; filename="logo123"', $body);
         $this->assertStringNotContainsString('name="attachment"', $body);
     }
 
@@ -284,6 +289,215 @@ final class MailgunEmailConnectorTest extends TestCase
         $this->assertStringContainsString('name="attachment"; filename="', $body);
     }
 
+    /**
+     * Mailgun messages API: `t:variables` is "A valid JSON-encoded dictionary",
+     * and repeatable fields are sent once per value.
+     */
+    public function testPassthroughMapIsJsonAndListIsRepeatedOnTheFormPath(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+            _passthrough: ['body' => ['t:variables' => ['name' => 'Ada', 'n' => 1], 'o:tag' => ['a', 'b']]],
+        ));
+
+        $body = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertStringContainsString('t%3Avariables=' . rawurlencode('{"name":"Ada","n":1}'), $body);
+        $this->assertSame(2, substr_count($body, 'o%3Atag='));
+    }
+
+    public function testPassthroughMapIsJsonOnTheMultipartPath(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+            attachments: [new EmailAttachment(filename: 'a.txt', content: 'x')],
+            _passthrough: ['body' => ['t:variables' => ['name' => 'Ada']]],
+        ));
+
+        $body = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertStringContainsString("name=\"t:variables\"\r\n\r\n{\"name\":\"Ada\"}\r\n", $body);
+    }
+
+    /** Header names are case-insensitive, so a caller `reply-to` must not produce a second Reply-To. */
+    public function testReplyToIsNotDuplicatedByACaseVariantHeader(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            replyTo: 'typed@example.com',
+            text: 'Body',
+            headers: ['reply-to' => 'header@example.com', 'X-Ref' => '1'],
+        ));
+
+        $body = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertSame(1, preg_match_all('/h%3Areply-to=/i', $body));
+        $this->assertStringContainsString('h%3AReply-To=' . rawurlencode('typed@example.com'), $body);
+        $this->assertStringContainsString('h%3AX-Ref=1', $body);
+    }
+
+    /** Mailgun `from`: "Can include a friendly name using the format "Friendly Name <email@domain.com>"". */
+    public function testSenderNameWithSpecialsIsQuoted(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = new MailgunEmailConnector(
+            new MailgunConfig(apiKey: 'test-key', domain: 'mg.example.com', senderName: 'Acme, Inc.'),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        );
+
+        $connector->send($this->basicInput());
+
+        parse_str((string) $this->mockClient->getRequests()[0]->getBody(), $parsed);
+        $this->assertSame('"Acme, Inc." <sender@example.com>', $parsed['from']);
+    }
+
+    /**
+     * Mailgun messages API: o:tracking / o:tracking-clicks / o:tracking-opens /
+     * o:dkim take yes|no; o:testmode and t:text document only "yes";
+     * o:deliverytime is RFC-2822; t:variables is JSON; v:<name> per variable.
+     */
+    public function testNarrowedFieldsMapToMailgunFormFields(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new \Thinwrap\Notifications\Providers\Mailgun\MailgunNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+            oTracking: true,
+            oTrackingClicks: false,
+            oTrackingOpens: true,
+            oDeliverytime: 'Fri, 14 Oct 2011 12:00:00 +0000',
+            oTestmode: true,
+            oDkim: false,
+            vCustomVars: ['order' => '42'],
+            template: 'welcome',
+            tVariables: ['name' => 'Ada'],
+            tVersion: 'v2',
+            tText: 'yes',
+        ));
+
+        // parse_str() would mangle the `o:`-style keys, so decode pairs by hand.
+        $parsed = [];
+        foreach (explode('&', (string) $this->mockClient->getRequests()[0]->getBody()) as $pair) {
+            [$k, $v] = explode('=', $pair, 2);
+            $parsed[str_replace(':', '__', rawurldecode($k))] = rawurldecode($v);
+        }
+        $this->assertSame('yes', $parsed['o__tracking']);
+        $this->assertSame('no', $parsed['o__tracking-clicks']);
+        $this->assertSame('yes', $parsed['o__tracking-opens']);
+        $this->assertSame('Fri, 14 Oct 2011 12:00:00 +0000', $parsed['o__deliverytime']);
+        $this->assertSame('yes', $parsed['o__testmode']);
+        $this->assertSame('no', $parsed['o__dkim']);
+        $this->assertSame('42', $parsed['v__order']);
+        $this->assertSame('welcome', $parsed['template']);
+        $this->assertSame('{"name":"Ada"}', $parsed['t__variables']);
+        $this->assertSame('v2', $parsed['t__version']);
+        $this->assertSame('yes', $parsed['t__text']);
+    }
+
+    /** `t:variables`: "A valid JSON-encoded dictionary" — an empty one is `{}`. */
+    public function testEmptyTemplateVariablesAreAnEmptyJsonObject(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+
+        $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Mailgun\MailgunNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'S',
+            template: 'welcome',
+            tVariables: [],
+        ));
+
+        $this->assertStringContainsString('t%3Avariables=' . rawurlencode('{}'), (string) $this->mockClient->getRequests()[0]->getBody());
+    }
+
+    /** Mailgun: a sent subject "will override [the template's] if provided". */
+    public function testEmptySubjectIsOmittedOnATemplateSend(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+
+        $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Mailgun\MailgunNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: '',
+            template: 'welcome',
+        ));
+
+        $body = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertStringNotContainsString('subject=', $body);
+        $this->assertStringContainsString('template=welcome', $body);
+    }
+
+    /** Mailgun o:tracking / o:tracking-clicks: "yes, no, true, false, htmlonly". */
+    public function testTrackingHtmlonlyAndStructuredCustomVariables(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+
+        $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Mailgun\MailgunNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'S',
+            text: 'B',
+            oTrackingClicks: 'htmlonly',
+            vCustomVars: ['meta' => ['a' => 1]],
+        ));
+
+        $body = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertStringContainsString('o%3Atracking-clicks=htmlonly', $body);
+        $this->assertStringContainsString('v%3Ameta=' . rawurlencode('{"a":1}'), $body);
+    }
+
+    public function testUnknownTrackingStringIsRejected(): void
+    {
+        try {
+            $this->buildConnector()->send(new \Thinwrap\Notifications\Providers\Mailgun\MailgunNarrowedInput(
+                from: 'sender@example.com',
+                to: 'recipient@example.com',
+                subject: 'S',
+                text: 'B',
+                oTracking: 'sometimes',
+            ));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            $this->assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+        }
+    }
+
+    public function testTestmodeFalseIsOmittedBecauseMailgunOnlyDocumentsYes(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new \Thinwrap\Notifications\Providers\Mailgun\MailgunNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            text: 'Body',
+            oTestmode: false,
+        ));
+
+        $this->assertStringNotContainsString('testmode', (string) $this->mockClient->getRequests()[0]->getBody());
+    }
+
     public function testPassthroughHonored(): void
     {
         $this->mockClient->addResponse($this->successResponse());
@@ -314,6 +528,8 @@ final class MailgunEmailConnectorTest extends TestCase
     {
         yield '401' => [401, ['message' => 'auth'], [], ProviderCode::AuthFailed, null];
         yield '402' => [402, ['message' => 'payment'], [], ProviderCode::AuthFailed, null];
+        // API overview: 403 "Forbidden — Valid credentials but access denied."
+        yield '403' => [403, ['message' => 'Domain is not allowed to send'], [], ProviderCode::AuthFailed, null];
         yield '400 invalid email' => [400, ['message' => "'foo' is not a valid email"], [], ProviderCode::InvalidRecipient, null];
         yield '400 other' => [400, ['message' => 'missing subject'], [], ProviderCode::InvalidRequest, null];
         yield '404' => [404, ['message' => 'unknown domain'], [], ProviderCode::InvalidRequest, null];

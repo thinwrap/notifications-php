@@ -27,13 +27,15 @@ API token from Mailtrap dashboard. Sent as `Authorization: Bearer <token>`. Sand
 
 ## Endpoint
 
-`https://send.api.mailtrap.io/api/send` (production). In sandbox mode the endpoint is `https://sandbox.api.mailtrap.io/api/send/{inboxId}`. JSON request body. The mode is validated at construction time (sandbox requires `inboxId`; production forbids it).
+`https://send.api.mailtrap.io/api/send` (production). In sandbox mode the endpoint is `https://sandbox.api.mailtrap.io/api/send/{inboxId}`. JSON request body. The mode is validated at construction time (sandbox requires a non-empty `inboxId`; production forbids one).
 
 ## Narrowed input augmentations
 
-Standard email input applies and maps to Mailtrap's wire shape: `from` (+ config `senderName`) → `from` (`{email, name?}`), `to` → `to` (`[{email}]`), `subject` → `subject`, `cc`/`bcc` → `cc`/`bcc` (`[{email}]`), `replyTo` → `reply_to` (a single `{email}` object), `html`/`text` → `html`/`text`, `headers` → `headers` (flat map), and `attachments` → `attachments` (`{filename, content, type?}`, base64; a `contentId` adds `content_id` + `disposition: "inline"`). `status` is `Sent`; `providerMessageId` comes from `message_ids[0]`. A non-empty `tags` is **rejected pre-flight** with `ConnectorError(InvalidRequest)` — Mailtrap has no tags at v1.0 (use `_passthrough['body']['category']`).
+Standard email input applies and maps to Mailtrap's wire shape: `from` (+ config `senderName`) → `from` (`{email, name?}`), `to` → `to` (`[{email}]`), `subject` → `subject`, `cc`/`bcc` → `cc`/`bcc` (`[{email}]`), `replyTo` → `reply_to` (a single `{email}` object), `html`/`text` → `html`/`text`, `headers` → `headers` (flat map), and `attachments` → `attachments` (`{filename, content, type?}`, base64; a `contentId` adds `content_id` + `disposition: "inline"`). `status` is `Sent`; `providerMessageId` comes from `message_ids[0]`. A non-empty `tags` is **rejected pre-flight** with `ConnectorError(InvalidRequest)` — Mailtrap has no tags at v1.0 (use `MailtrapNarrowedInput` `category`).
 
-Provider-specific fields ride in `_passthrough['body']` in Mailtrap's snake_case wire form (written directly — no PHP-side casing transform): e.g. `template_uuid`, `template_variables`, `custom_variables`, `category`.
+`MailtrapNarrowedInput` adds typed Mailtrap fields: `category` → `category`, `customVariables` → `custom_variables`, `templateUuid` → `template_uuid`, `templateVariables` → `template_variables`. A template send (a `template_uuid` in the final body, typed or from `_passthrough`) drops `subject` / `text` / `html`, because Mailtrap's template request has none (the template supplies them), and a `category` with it is rejected pre-flight with `InvalidRequest` (set the category on the template).
+
+Other provider-specific fields ride in `_passthrough['body']` in Mailtrap's snake_case wire form (written directly — no PHP-side casing transform) and win over the typed fields.
 
 ## Error mapping
 

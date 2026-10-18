@@ -30,6 +30,7 @@ final class SlackChatConnector extends BaseConnector implements ChatConnectorInt
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly SlackConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

@@ -35,6 +35,7 @@ final class MattermostChatConnector extends BaseConnector implements ChatConnect
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly MattermostConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

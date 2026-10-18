@@ -137,94 +137,236 @@ final class SesEmailConnectorTest extends TestCase
         $this->assertStringContainsString('x-custom', $auth); // normal passthrough headers still are
     }
 
-    public function testAttachmentsBuildRawMimeMessage(): void
+    /**
+     * sesv2 `Attachment`: "RawContent … needs to be base64-encoded if you are
+     * accessing Amazon SES directly through the HTTPS interface"; `ContentId`
+     * is "used for referencing attachments with INLINE disposition in HTML
+     * content"; ContentDisposition is `ATTACHMENT` or `INLINE`.
+     */
+    public function testAttachmentsGoThroughSimpleContentAttachments(): void
     {
-        // a documented design decision: SES attachments are now supported via the MIME
-        // builder (Content.Raw), replacing the prior "deferred to v1.1" throw.
         $this->mockClient->addResponse(
-            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"mime-1"}'))
+            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"att-1"}'))
         );
         $connector = $this->buildConnector();
 
-        $attachment = new EmailAttachment(
-            filename: 'file.txt',
-            contentType: 'text/plain',
-            content: 'hello',
-        );
         $input = new EmailSendInput(
             from: 'sender@example.com',
             to: 'recipient@example.com',
             subject: 'Test',
             text: 'Body',
-            html: '<p>Body</p>',
-            attachments: [$attachment],
+            html: '<p><img src="cid:logo"></p>',
+            attachments: [
+                new EmailAttachment(filename: 'file.txt', content: 'hello', contentType: 'text/plain'),
+                new EmailAttachment(filename: 'logo.png', content: 'PNG', contentType: 'image/png', contentId: 'logo'),
+                new EmailAttachment(filename: 'blob.bin', content: 'x'),
+            ],
         );
 
         $result = $connector->send($input);
 
-        $this->assertSame('mime-1', $result->providerMessageId);
-        $request = $this->mockClient->getRequests()[0];
-        /** @var array<string,mixed> $decoded */
-        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        $this->assertArrayHasKey('Content', $decoded);
-        $this->assertArrayHasKey('Raw', $decoded['Content']);
-        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
-        $this->assertNotFalse($rawMime);
-        $this->assertStringContainsString('Content-Type: multipart/mixed', $rawMime);
-        $this->assertStringContainsString('Content-Disposition: attachment; filename="file.txt"', $rawMime);
-        $this->assertStringContainsString(base64_encode('hello'), $rawMime);
+        $this->assertSame('att-1', $result->providerMessageId);
+        $decoded = $this->sentBody();
+        $this->assertArrayNotHasKey('Raw', $decoded['Content']);
+        $this->assertSame(
+            [
+                ['FileName' => 'file.txt', 'RawContent' => base64_encode('hello'), 'ContentType' => 'text/plain', 'ContentDisposition' => 'ATTACHMENT'],
+                ['FileName' => 'logo.png', 'RawContent' => base64_encode('PNG'), 'ContentType' => 'image/png', 'ContentId' => 'logo', 'ContentDisposition' => 'INLINE'],
+                ['FileName' => 'blob.bin', 'RawContent' => base64_encode('x'), 'ContentDisposition' => 'ATTACHMENT'],
+            ],
+            $decoded['Content']['Simple']['Attachments'],
+        );
+        $this->assertSame(['Data' => 'Test', 'Charset' => 'UTF-8'], $decoded['Content']['Simple']['Subject']);
     }
 
-    public function testRawMimeFromHeaderKeepsBareAddressWithNonAsciiSenderName(): void
+    /** sesv2 `Message.Headers`: "The list of message headers that will be added to the email message." */
+    public function testHeadersGoThroughSimpleContentHeaders(): void
     {
-        // RFC 2047 forbids encoded-words inside an addr-spec: a non-ASCII
-        // senderName must encode ONLY the display-name phrase, leaving a
-        // parseable bare `<addr@domain>` for SES to route/reply to. An
-        // attachment forces the raw-MIME (Content.Raw) path.
-        $this->mockClient->addResponse(
-            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"from-1"}'))
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Réservation',
+            text: 'café ☕',
+            headers: ['X-Entity-Ref-Id' => 'abc', 'List-Unsubscribe' => '<https://example.com/u>'],
+        ));
+
+        $decoded = $this->sentBody();
+        $this->assertSame(
+            [['Name' => 'X-Entity-Ref-Id', 'Value' => 'abc'], ['Name' => 'List-Unsubscribe', 'Value' => '<https://example.com/u>']],
+            $decoded['Content']['Simple']['Headers'],
         );
+        $this->assertSame(['Data' => 'café ☕', 'Charset' => 'UTF-8'], $decoded['Content']['Simple']['Body']['Text']);
+    }
+
+    /**
+     * @return iterable<string,array{array<string,string>}>
+     */
+    public static function rejectedHeaders(): iterable
+    {
+        // header-fields.html: "the following headers are disallowed as custom
+        // headers: BCC, CC, Content-Disposition, Content-Type, Date, From,
+        // Message-ID, MIME-Version, Reply-To, Return-Path, Subject, To"
+        yield 'Reply-To is set by SES' => [['reply-to' => 'x@example.com']];
+        yield 'Content-Type is set by SES' => [['Content-Type' => 'text/plain']];
+        yield 'From is set by SES' => [['FROM' => 'x@example.com']];
+        // MessageHeaderValue: "Can contain any printable ASCII character."
+        yield 'trailing LF in value' => [['X-Note' => "v\n"]];
+        yield 'CRLF in value' => [['X-Note' => "a\r\nBcc: x@example.com"]];
+        // MessageHeaderName: "any printable ASCII character (33 - 126) except for colon (:)"
+        yield 'colon in name' => [['X-A:B' => 'v']];
+        // MessageHeaderList: "Can contain no more than 15 headers in one message."
+        yield 'more than 15 headers' => [array_combine(
+            array_map(static fn(int $i): string => "X-H{$i}", range(1, 16)),
+            array_fill(0, 16, 'v'),
+        )];
+    }
+
+    /**
+     * @param array<string,string> $headers
+     */
+    #[DataProvider('rejectedHeaders')]
+    public function testHeadersSesRejectsFailBeforeSending(array $headers): void
+    {
+        $connector = $this->buildConnector();
+
+        try {
+            $connector->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', headers: $headers));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
+    /**
+     * SES: "If you want to use Unicode characters in the "friendly from" name,
+     * you must encode the "friendly from" name using MIME encoded-word syntax";
+     * RFC 5322 requires a name with specials to be a quoted-string.
+     *
+     * @return iterable<string,array{string|null,string,string}>
+     */
+    public static function senderNames(): iterable
+    {
+        yield 'plain atoms' => ['Acme Mail', 'sender@example.com', 'Acme Mail <sender@example.com>'];
+        yield 'specials are quoted' => ['Acme, Inc.', 'sender@example.com', '"Acme, Inc." <sender@example.com>'];
+        yield 'quotes are escaped' => ['Joe "JJ" Doe', 'sender@example.com', '"Joe \\"JJ\\" Doe" <sender@example.com>'];
+        yield 'non-ASCII is an encoded-word' => ['Café Señor', 'sender@example.com', '=?UTF-8?B?' . base64_encode('Café Señor') . '?= <sender@example.com>'];
+        yield 'no name' => [null, 'sender@example.com', 'sender@example.com'];
+        yield 'embedded name is not double-wrapped' => ['Config Name', 'Per Message <sender@example.com>', 'Per Message <sender@example.com>'];
+    }
+
+    #[DataProvider('senderNames')]
+    public function testFromEmailAddressFormatsTheDisplayName(?string $senderName, string $from, string $expected): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
         $connector = new SesEmailConnector(
-            new SesConfig(
-                region: 'us-east-1',
-                accessKeyId: 'AKIATEST',
-                secretAccessKey: 'secretvalue',
-                senderName: 'Café Señor',
-            ),
+            new SesConfig(region: 'us-east-1', accessKeyId: 'AKIATEST', secretAccessKey: 'secretvalue', senderName: $senderName),
             ...$this->httpDeps(),
         );
 
-        $attachment = new EmailAttachment(
-            filename: 'file.txt',
-            contentType: 'text/plain',
-            content: 'hello',
+        $connector->send(new EmailSendInput(from: $from, to: 'recipient@example.com', subject: 'S', text: 'B'));
+
+        $this->assertSame($expected, $this->sentBody()['FromEmailAddress']);
+    }
+
+    /** RFC 2047 §2: "An 'encoded-word' may not be more than 75 characters long". */
+    public function testLongNonAsciiSenderNameSplitsIntoShortEncodedWords(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $name = str_repeat('Ünïcødé ', 12);
+        $connector = new SesEmailConnector(
+            new SesConfig(region: 'us-east-1', accessKeyId: 'AKIATEST', secretAccessKey: 'secretvalue', senderName: $name),
+            ...$this->httpDeps(),
         );
-        $input = new EmailSendInput(
+
+        $connector->send($this->basicInput());
+
+        $from = $this->sentBody()['FromEmailAddress'];
+        $this->assertStringEndsWith(' <sender@example.com>', $from);
+        $words = explode(' ', substr($from, 0, -strlen(' <sender@example.com>')));
+        $this->assertGreaterThan(1, count($words));
+        $decoded = '';
+        foreach ($words as $word) {
+            $this->assertLessThanOrEqual(75, strlen($word));
+            $this->assertSame(1, preg_match('/^=\?UTF-8\?B\?([A-Za-z0-9+\/=]+)\?=$/', $word, $m));
+            $chunk = base64_decode($m[1], true);
+            $this->assertIsString($chunk);
+            $this->assertSame(1, preg_match('//u', $chunk), 'each word must hold whole UTF-8 characters');
+            $decoded .= $chunk;
+        }
+        $this->assertSame(trim($name), $decoded);
+    }
+
+    /**
+     * MessageHeaderValue allows only printable ASCII, so a non-ASCII value goes
+     * as RFC 2047 encoded-words ("An 'encoded-word' may not be more than 75
+     * characters long").
+     */
+    public function testNonAsciiHeaderValueIsSentAsEncodedWords(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $value = str_repeat('Réservation confirmée ', 4);
+
+        $this->buildConnector()->send(new EmailSendInput(
             from: 'sender@example.com',
             to: 'recipient@example.com',
-            subject: 'Test',
-            text: 'Body',
-            attachments: [$attachment],
-        );
+            subject: 'S',
+            text: 'B',
+            headers: ['X-Note' => $value, 'X-Plain' => 'ascii'],
+        ));
 
-        $connector->send($input);
+        $headers = $this->sentBody()['Content']['Simple']['Headers'];
+        $this->assertSame(['Name' => 'X-Plain', 'Value' => 'ascii'], $headers[1]);
+        $words = explode(' ', $headers[0]['Value']);
+        $this->assertGreaterThan(1, count($words));
+        $decoded = '';
+        foreach ($words as $word) {
+            $this->assertLessThanOrEqual(75, strlen($word));
+            $this->assertSame(1, preg_match('/^=\?UTF-8\?B\?([A-Za-z0-9+\/=]+)\?=$/', $word, $m));
+            $decoded .= (string) base64_decode($m[1], true);
+        }
+        $this->assertSame($value, $decoded);
+    }
 
-        $request = $this->mockClient->getRequests()[0];
-        /** @var array<string,mixed> $decoded */
-        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
-        $this->assertNotFalse($rawMime);
+    /** SES addresses are sent as given; only the display name is formatted. */
+    public function testNonAsciiAddressIsSentAsGiven(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
 
-        // Grab the From header line.
-        $this->assertSame(1, preg_match('/^From: (.*)$/m', $rawMime, $m));
-        $fromValue = $m[1];
+        $this->buildConnector()->send(new EmailSendInput(from: 'sender@example.com', to: 'jörg@bücher.example', subject: 'S', text: 'B'));
 
-        // The routable address must remain a bare, parseable `<addr@domain>` —
-        // NOT swallowed inside a single encoded-word.
-        $this->assertStringContainsString('<sender@example.com>', $fromValue);
-        $this->assertStringNotContainsString('<sender@example.com>?=', $fromValue);
-        // The non-ASCII display-name is RFC 2047 base64 encoded on its own.
-        $this->assertStringContainsString('=?UTF-8?B?' . base64_encode('Café Señor') . '?=', $fromValue);
+        $this->assertSame(['jörg@bücher.example'], $this->sentBody()['Destination']['ToAddresses']);
+    }
+
+    /** sesv2 `MessageTag`: "It can only contain ASCII letters (a–z, A–Z), numbers (0–9), underscores (_), or dashes (-)." */
+    public function testTagOutsideTheSesCharsetIsRejectedBeforeSending(): void
+    {
+        $connector = $this->buildConnector();
+
+        try {
+            $connector->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', tags: ['welcome email']));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
+    /** botocore `validate_region_name`: the region becomes part of the signed request's host. */
+    public function testRegionThatIsNotAHostLabelIsRejectedBeforeSending(): void
+    {
+        $connector = $this->buildConnector(region: 'x.evil.test/');
+
+        try {
+            $connector->send($this->basicInput());
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
     }
 
     public function testTagsMapToEmailTags(): void
@@ -292,11 +434,37 @@ final class SesEmailConnectorTest extends TestCase
      */
     public static function errorScenarios(): iterable
     {
-        yield 'MessageRejected => InvalidRecipient' => [
+        // SendEmail errors: MessageRejected "The message can't be sent because
+        // it contains invalid content."
+        yield 'MessageRejected => InvalidRequest' => [
             400,
             ['__type' => 'MessageRejected', 'message' => 'Email rejected'],
             [],
-            ProviderCode::InvalidRecipient,
+            ProviderCode::InvalidRequest,
+            null,
+        ];
+        // SendingPausedException: "sending for your account is currently paused".
+        yield 'SendingPausedException => AuthFailed' => [
+            400,
+            ['message' => 'Sending paused'],
+            ['x-amzn-ErrorType' => 'SendingPausedException:http://internal.amazon.com/coral/com.amazonaws.sesv2/'],
+            ProviderCode::AuthFailed,
+            null,
+        ];
+        // restJson1: the x-amzn-ErrorType header wins over the body (botocore
+        // RestJSONParser._inject_error_code checks the header first).
+        yield 'x-amzn-ErrorType header wins over body' => [
+            400,
+            ['__type' => 'BadRequestException'],
+            ['x-amzn-ErrorType' => 'AccountSuspendedException'],
+            ProviderCode::AuthFailed,
+            null,
+        ];
+        yield 'lowercase body code, namespaced' => [
+            400,
+            ['code' => 'com.amazonaws.sesv2#SendingPausedException'],
+            [],
+            ProviderCode::AuthFailed,
             null,
         ];
         yield 'MailFromDomainNotVerified => InvalidRequest' => [
@@ -364,87 +532,16 @@ final class SesEmailConnectorTest extends TestCase
         }
     }
 
-    public function testLargeAttachmentBase64IsLineWrapped(): void
+    /**
+     * @return array<string,mixed>
+     */
+    private function sentBody(): array
     {
-        // An unwrapped base64 blob >~748 bytes would exceed RFC 5322's
-        // 998-octet line cap; the MIME builder must fold it into ≤76-char lines.
-        $this->mockClient->addResponse(
-            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"wrap-1"}'))
-        );
-        $connector = $this->buildConnector();
-
-        $content = str_repeat('A', 1000);
-        $attachment = new EmailAttachment(
-            filename: 'big.bin',
-            contentType: 'application/octet-stream',
-            content: $content,
-        );
-        $input = new EmailSendInput(
-            from: 'sender@example.com',
-            to: 'recipient@example.com',
-            subject: 'Big',
-            text: 'Body',
-            attachments: [$attachment],
-        );
-
-        $connector->send($input);
-
         $request = $this->mockClient->getRequests()[0];
         /** @var array<string,mixed> $decoded */
         $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
-        $this->assertNotFalse($rawMime);
 
-        // The flat, unwrapped base64 must NOT appear verbatim — it must be folded.
-        $flat = base64_encode($content);
-        $this->assertStringNotContainsString($flat, $rawMime);
-
-        // Scan the actual MIME lines: every base64 payload line ≤76 chars, >1 line.
-        $base64LineCount = 0;
-        $maxBase64LineLength = 0;
-        foreach (explode("\r\n", $rawMime) as $line) {
-            if ($line !== '' && strlen($line) >= 40 && preg_match('#^[A-Za-z0-9+/]+={0,2}$#', $line) === 1) {
-                $base64LineCount++;
-                $maxBase64LineLength = max($maxBase64LineLength, strlen($line));
-            }
-        }
-        $this->assertGreaterThan(1, $base64LineCount, 'base64 payload must span multiple folded lines');
-        $this->assertLessThanOrEqual(76, $maxBase64LineLength);
-    }
-
-    public function testNonAsciiBodyDeclaresBase64Not8bitOr7bit(): void
-    {
-        // A custom header forces the raw-MIME path; the UTF-8 body must be
-        // base64-encoded (7-bit-safe), never 8bit/7bit.
-        $this->mockClient->addResponse(
-            (new Response(200))->withBody($this->factory->createStream('{"MessageId":"utf-1"}'))
-        );
-        $connector = $this->buildConnector();
-
-        $input = new EmailSendInput(
-            from: 'sender@example.com',
-            to: 'recipient@example.com',
-            subject: 'Réservation',
-            text: 'café ☕',
-            html: '<p>café ☕</p>',
-            headers: ['X-Entity-Ref-Id' => 'abc'],
-        );
-
-        $connector->send($input);
-
-        $request = $this->mockClient->getRequests()[0];
-        /** @var array<string,mixed> $decoded */
-        $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
-        $rawMime = base64_decode($decoded['Content']['Raw']['Data'], true);
-        $this->assertNotFalse($rawMime);
-
-        $this->assertStringContainsString('Content-Type: text/plain; charset=UTF-8', $rawMime);
-        $this->assertStringContainsString('Content-Type: text/html; charset=UTF-8', $rawMime);
-        $this->assertStringContainsString('Content-Transfer-Encoding: base64', $rawMime);
-        $this->assertStringNotContainsString('Content-Transfer-Encoding: 8bit', $rawMime);
-        $this->assertStringNotContainsString('Content-Transfer-Encoding: 7bit', $rawMime);
-        // The UTF-8 body survives intact: the base64-encoded part decodes back.
-        $this->assertStringContainsString(base64_encode('café ☕'), $rawMime);
+        return $decoded;
     }
 
     private function basicInput(): EmailSendInput

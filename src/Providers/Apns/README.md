@@ -25,11 +25,11 @@ Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$cl
 
 ## Auth setup
 
-Auth Key (`.p8` file) + Key ID + Team ID from Apple Developer portal. JWT ES256 signed locally with the EC private key. Sandbox endpoint at `api.sandbox.push.apple.com`. **Stateless by default** — the wrapper signs a fresh JWT per send. Supply an optional `TokenCacheHook` on `ApnsConfig` to amortize signing cost. Cache key shape: `apns:<teamId>:<keyId>:<bundleId>`. Epoch is **seconds** — divergent from TypeScript sibling's ms.
+Auth Key (`.p8` file) + Key ID + Team ID from Apple Developer portal. JWT ES256 signed locally with the EC private key. Sandbox endpoint at `api.sandbox.push.apple.com`. The wrapper is stateless: without a `TokenCacheHook` it signs a fresh JWT per send. **Supply `tokenCache` in production** — see below. Cache key shape: `apns:<teamId>:<keyId>:<bundleId>`. Epoch is **seconds** — divergent from TypeScript sibling's ms.
 
-### Optional `TokenCacheHook`
+### `TokenCacheHook` is required in production
 
-This connector signs a fresh JWT on every send by default (stateless — the wrapper holds no state). Consumers that want to amortize the signing cost supply a `Thinwrap\Notifications\Contract\TokenCacheHook` on the config. The hook owns the state — the wrapper calls `get` / `set`. Epoch is **seconds** (PHP `time()`) — divergent from the TypeScript sibling's milliseconds.
+Apple: "Refresh your token no more than once every 20 minutes and no less than once every 60 minutes", and APNs answers `429 TooManyProviderTokenUpdates` when a new token arrives more often than that. Without a cache every send signs a new JWT, so anything beyond a trickle of pushes gets rejected — the hook is what keeps APNs working, not a speed optimisation. Supply a `Thinwrap\Notifications\Contract\TokenCacheHook` on the config (backed by APCu, Redis, a static, …); the hook owns the state and the wrapper only calls `get` / `set`, caching each token for 50 minutes (inside Apple's 20–60 minute window). Epoch is **seconds** (PHP `time()`) — divergent from the TypeScript sibling's milliseconds.
 
 ## Endpoint
 
@@ -37,7 +37,7 @@ This connector signs a fresh JWT on every send by default (stateless — the wra
 
 ## Narrowed input augmentations
 
-Standard push input (`to`, `title`, `body`, `data`) applies: `title`/`body` → `aps.alert.{title,body}`, and `data` keys merge at the payload root alongside `aps`. The `apns-push-type` header is `alert` when a title or body is present, else `background`. APNs returns an empty 200 body, so `raw` is `[]`, `status` is `Sent`, and `providerMessageId` is the `apns-id` response header.
+Standard push input (`to`, `title`, `body`, `data`) applies: `title`/`body` → `aps.alert.{title,body}`, and `data` keys merge at the payload root alongside `aps`. The `apns-push-type` header is your own when you set one (`apnsPushType`, or `apns-push-type` in `_passthrough['headers']`, which wins); otherwise it is `alert` when the final `aps` (after `aps` and `_passthrough` are merged) has an `alert`, `badge` or `sound` — Apple's alert type is for "an alert, badge, or sound" — and `background` when it has none of them. A background push (inferred or yours) follows Apple's rules: `apns-priority: 5` (Apple: "Using priority `10` is an error", and 10 is the default when the header is omitted) and `aps.content-available: 1`, each unless you set it yourself. `aps.alert` may be a string (sent as-is) or a dictionary; combined with `title` / `body` a string alert becomes the dictionary's `body`. An empty alert is never sent, and `aps` is always a JSON object. APNs returns an empty 200 body, so `raw` is `[]`, `status` is `Sent`, and `providerMessageId` is the `apns-id` response header.
 
 `ApnsPushSendInput` extends `PushSendInput` with below-baseline APNs fields: `aps` (Apple-spec dictionary; kebab-case keys written verbatim), `badge`, `sound`, `ttl` (computes the `apns-expiration` header as `now + ttl`), plus header overrides `apnsTopic`, `apnsPushType`, `apnsPriority`, `apnsCollapseId`, `apnsExpiration`. Any further sub-baseline body fields (the rest of the `aps` dictionary) go via `_passthrough['body']`; sub-baseline headers (`apns-priority`, `apns-expiration`, `apns-collapse-id`, `apns-push-type`/`apns-topic` overrides) go via `_passthrough['headers']`.
 
@@ -51,11 +51,12 @@ Standard push input (`to`, `title`, `body`, `data`) applies: `title`/`body` → 
 | 403 | (other) | `AuthFailed` |
 | 410 | (any) | `InvalidRecipient` |
 | 413 | (any) | `InvalidRequest` |
-| 429 | (any) | `RateLimited` |
-| 500 / 503 | (any) | `ProviderUnavailable` |
+| 429 | `reason` `TooManyProviderTokenUpdates` (no `tokenCache`; the message says so) | `AuthFailed` |
+| 429 | (other) | `RateLimited` |
+| 5xx | (any) | `ProviderUnavailable` |
 | — | (unmatched) | `Unknown` |
 
-The `reason` string is read from the JSON error body. Note that only `500`/`503` map to `ProviderUnavailable` — other `5xx` statuses fall through to `Unknown`.
+The `reason` string is read from the JSON error body. `TooManyProviderTokenUpdates` is `AuthFailed` rather than `RateLimited` because retrying without a `tokenCache` signs yet another token and fails the same way.
 
 The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
 

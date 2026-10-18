@@ -16,6 +16,7 @@ use Thinwrap\Notifications\DTO\Email\EmailSendResult;
 use Thinwrap\Notifications\DTO\Email\EmailStatus;
 use Thinwrap\Notifications\Enum\ProviderCode;
 use Thinwrap\Notifications\Exception\ConnectorError;
+use Thinwrap\Notifications\Util\JsonObject;
 use Thinwrap\Notifications\Util\Passthrough;
 
 /**
@@ -37,6 +38,7 @@ final class SendgridEmailConnector extends BaseConnector implements EmailConnect
     private const ENDPOINT = 'https://api.sendgrid.com/v3/mail/send';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly SendgridConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -59,7 +61,7 @@ final class SendgridEmailConnector extends BaseConnector implements EmailConnect
         $url = self::ENDPOINT;
 
         /** @var array<string,mixed> $mergedBody */
-        $mergedBody = $merged['body'];
+        $mergedBody = self::checkBody($merged['body']);
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
@@ -128,8 +130,99 @@ final class SendgridEmailConnector extends BaseConnector implements EmailConnect
         if ($input->headers !== null && $input->headers !== []) {
             $body['headers'] = $input->headers;
         }
-        if ($input->tags !== null && $input->tags !== []) {
-            $body['categories'] = $input->tags;
+        $categories = $input->tags ?? [];
+        if ($input instanceof SendgridNarrowedInput) {
+            $body = $this->applyNarrowedFields($input, $body);
+            // Both land in `categories`, which SendGrid wants `uniqueItems`.
+            $categories = array_values(array_unique(array_merge($categories, $input->categories ?? [])));
+        }
+        if ($categories !== []) {
+            $body['categories'] = $categories;
+        }
+
+        return $body;
+    }
+
+    /**
+     * Pre-flight rules from the v3 mail/send schema (twilio/sendgrid-oai
+     * `tsg_mail_v3.json`), applied to the final body:
+     *  - `categories`: `uniqueItems`, `maxItems: 10`, each `maxLength: 255`.
+     *    Duplicates are removed; more than 10, or one too long, is
+     *    `InvalidRequest` — SendGrid would reject the whole send, and silently
+     *    dropping tags would lose the caller's reporting data.
+     *  - top-level `subject` has `minLength: 1`, and a dynamic template supplies
+     *    its own, so an empty subject is dropped when `template_id` is set.
+     *
+     * @param array<string,mixed> $body
+     *
+     * @return array<string,mixed>
+     */
+    private static function checkBody(array $body): array
+    {
+        if (isset($body['categories']) && is_array($body['categories'])) {
+            foreach ($body['categories'] as $category) {
+                // maxLength is a JSON Schema length: characters, not bytes.
+                // Counted with PCRE (always available) rather than mbstring,
+                // which composer.json does not require; invalid UTF-8 fails.
+                $length = is_string($category) ? preg_match_all('/./su', $category) : false;
+                if ($length === false || $length > 255) {
+                    throw new ConnectorError(
+                        providerCode: ProviderCode::InvalidRequest,
+                        providerMessage: 'SendGrid categories must be strings of at most 255 characters',
+                        statusCode: 400,
+                    );
+                }
+            }
+            // Exact string comparison: "1" and "01" are different categories.
+            $categories = array_values(array_unique($body['categories'], SORT_STRING));
+            if (count($categories) > 10) {
+                throw new ConnectorError(
+                    providerCode: ProviderCode::InvalidRequest,
+                    providerMessage: 'SendGrid accepts at most 10 categories (tags + categories, after de-duplication)',
+                    statusCode: 400,
+                );
+            }
+            $body['categories'] = $categories;
+        }
+        if (isset($body['template_id']) && ($body['subject'] ?? null) === '') {
+            unset($body['subject']);
+        }
+
+        return $body;
+    }
+
+    /**
+     * SendGrid v3 mail/send wire names (twilio/sendgrid-oai `tsg_mail_v3.json`).
+     * `dynamic_template_data` exists only per personalization, so it goes on
+     * the single personalization this connector builds. The settings objects
+     * are sent as given, in SendGrid's own snake_case shape.
+     *
+     * @param array<string,mixed> $body
+     *
+     * @return array<string,mixed>
+     */
+    private function applyNarrowedFields(SendgridNarrowedInput $input, array $body): array
+    {
+        $fields = [
+            'template_id' => $input->templateId,
+            'send_at' => $input->sendAt,
+            'batch_id' => $input->batchId,
+            // The OAI spec types these as objects; an empty one is `{}`.
+            'asm' => $input->asm !== null ? JsonObject::of($input->asm) : null,
+            'mail_settings' => $input->mailSettings !== null ? JsonObject::of($input->mailSettings) : null,
+            'tracking_settings' => $input->trackingSettings !== null ? JsonObject::of($input->trackingSettings) : null,
+            'ip_pool_name' => $input->ipPoolName,
+        ];
+        foreach ($fields as $key => $value) {
+            if ($value !== null) {
+                $body[$key] = $value;
+            }
+        }
+        if ($input->dynamicTemplateData !== null) {
+            /** @var list<array<string,mixed>> $personalizations */
+            $personalizations = $body['personalizations'];
+            $personalizations[0]['dynamic_template_data'] = JsonObject::of($input->dynamicTemplateData);
+            $body['personalizations'] = $personalizations;
         }
 
         return $body;

@@ -100,6 +100,33 @@ final class SparkpostEmailConnectorTest extends TestCase
         $this->assertArrayNotHasKey('BCC', $decoded['content']['headers']);
     }
 
+    /**
+     * Transmissions API: inline_images.name "will be inserted into the
+     * `Content-ID` header"; inline_images.type and attachments.type are
+     * "Required: yes".
+     */
+    public function testInlineImageNameIsTheContentIdAndTypeIsAlwaysSent(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            html: '<img src="cid:logo">',
+            attachments: [
+                new \Thinwrap\Notifications\DTO\Email\EmailAttachment(filename: 'logo.png', content: 'PNG', contentType: 'image/png', contentId: 'logo'),
+                new \Thinwrap\Notifications\DTO\Email\EmailAttachment(filename: 'report.bin', content: 'x'),
+            ],
+        ));
+
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame([['name' => 'logo', 'type' => 'image/png', 'data' => base64_encode('PNG')]], $decoded['content']['inline_images']);
+        $this->assertSame([['name' => 'report.bin', 'type' => 'application/octet-stream', 'data' => base64_encode('x')]], $decoded['content']['attachments']);
+    }
+
     public function testRejectAllRecipientsThrowsInvalidRecipient(): void
     {
         $this->mockClient->addResponse(
@@ -124,7 +151,8 @@ final class SparkpostEmailConnectorTest extends TestCase
     public static function errorScenarios(): iterable
     {
         yield '401' => [401, ['errors' => [['message' => 'unauth']]], [], ProviderCode::AuthFailed, null];
-        yield '420' => [420, ['errors' => [['message' => 'sending suspended']]], [], ProviderCode::AuthFailed, null];
+        // 420 "Exceed Sending Limit — You exceeded your daily, monthly, or sandbox sending limit."
+        yield '420' => [420, ['errors' => [['message' => 'Exceed Sending Limit']]], [], ProviderCode::RateLimited, null];
         yield '429 retry' => [429, ['errors' => [['message' => 'rate']]], ['Retry-After' => '60'], ProviderCode::RateLimited, '60'];
         yield '500' => [500, ['errors' => [['message' => 'oops']]], [], ProviderCode::ProviderUnavailable, null];
         yield '400 recipient' => [400, ['errors' => [['message' => 'invalid recipient address']]], [], ProviderCode::InvalidRecipient, null];

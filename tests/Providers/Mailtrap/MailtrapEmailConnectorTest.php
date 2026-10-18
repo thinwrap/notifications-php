@@ -61,6 +61,128 @@ final class MailtrapEmailConnectorTest extends TestCase
         }
     }
 
+    /** Sandbox is `POST /api/send/{inbox_id}`: an empty id would build `/api/send/`. */
+    public function testSandboxWithEmptyInboxIdThrowsAtConstruct(): void
+    {
+        try {
+            new MailtrapEmailConnector(
+                new MailtrapConfig(apiToken: 't', mode: MailtrapMode::Sandbox, inboxId: ''),
+                $this->mockClient,
+                $this->factory,
+                $this->factory,
+            );
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
+            $this->assertStringContainsString('inboxId', (string) $err->providerMessage);
+        }
+    }
+
+    public function testProductionWithEmptyInboxIdIsAccepted(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = new MailtrapEmailConnector(
+            new MailtrapConfig(apiToken: 't', mode: MailtrapMode::Production, inboxId: ''),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        );
+
+        $connector->send($this->basicInput());
+
+        $this->assertSame('https://send.api.mailtrap.io/api/send', (string) $this->mockClient->getRequests()[0]->getUri());
+    }
+
+    /**
+     * Mailtrap send schema: plain variants carry `category` (string) and
+     * `custom_variables` (object); `EmailFromTemplate` carries `template_uuid`,
+     * `template_variables` and `custom_variables` but no subject/text/html/category.
+     */
+    public function testNarrowedFieldsMapToMailtrapWireNames(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildProduction();
+
+        $connector->send(new \Thinwrap\Notifications\Providers\Mailtrap\MailtrapNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Hi',
+            text: 'hi',
+            category: 'welcome',
+            customVariables: ['user_id' => '42'],
+        ));
+
+        /** @var array<string,mixed> $body */
+        $body = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('welcome', $body['category']);
+        $this->assertSame(['user_id' => '42'], $body['custom_variables']);
+        $this->assertSame('Hi', $body['subject']);
+    }
+
+    public function testTemplateSendDropsSubjectAndBodies(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildProduction();
+
+        $connector->send(new \Thinwrap\Notifications\Providers\Mailtrap\MailtrapNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'unused',
+            text: 'unused',
+            html: '<p>unused</p>',
+            customVariables: ['user_id' => '42'],
+            templateUuid: '7c1b6c2e-1f7a-4a4e-9a55-0e3b9b1c2d3e',
+            templateVariables: ['name' => 'Ada'],
+        ));
+
+        /** @var array<string,mixed> $body */
+        $body = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('7c1b6c2e-1f7a-4a4e-9a55-0e3b9b1c2d3e', $body['template_uuid']);
+        $this->assertSame(['name' => 'Ada'], $body['template_variables']);
+        $this->assertSame(['user_id' => '42'], $body['custom_variables']);
+        $this->assertArrayNotHasKey('subject', $body);
+        $this->assertArrayNotHasKey('text', $body);
+        $this->assertArrayNotHasKey('html', $body);
+    }
+
+    /** Mailtrap OpenAPI: `custom_variables` and `template_variables` are objects. */
+    public function testEmptyVariableMapsAreSentAsJsonObjects(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+
+        $this->buildProduction()->send(new \Thinwrap\Notifications\Providers\Mailtrap\MailtrapNarrowedInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'unused',
+            customVariables: [],
+            templateUuid: '7c1b6c2e-1f7a-4a4e-9a55-0e3b9b1c2d3e',
+            templateVariables: [],
+        ));
+
+        $raw = (string) $this->mockClient->getRequests()[0]->getBody();
+        $this->assertStringContainsString('"custom_variables":{}', $raw);
+        $this->assertStringContainsString('"template_variables":{}', $raw);
+    }
+
+    public function testTemplateSendWithCategoryIsRejectedBeforeSending(): void
+    {
+        $connector = $this->buildProduction();
+
+        try {
+            $connector->send(new \Thinwrap\Notifications\Providers\Mailtrap\MailtrapNarrowedInput(
+                from: 'sender@example.com',
+                to: 'recipient@example.com',
+                subject: 'unused',
+                category: 'welcome',
+                templateUuid: '7c1b6c2e-1f7a-4a4e-9a55-0e3b9b1c2d3e',
+            ));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame(ProviderCode::InvalidRequest, $err->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
     public function testSandboxHitsSandboxHost(): void
     {
         $this->mockClient->addResponse($this->successResponse());

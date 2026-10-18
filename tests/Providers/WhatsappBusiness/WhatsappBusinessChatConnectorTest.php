@@ -119,6 +119,44 @@ final class WhatsappBusinessChatConnectorTest extends TestCase
         }
     }
 
+    /**
+     * Cloud API error codes (developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes).
+     *
+     * @return iterable<string,array{int,int,ProviderCode}>
+     */
+    public static function cloudApiCodes(): iterable
+    {
+        yield '131008 "The request is missing a required parameter."' => [400, 131008, ProviderCode::InvalidRequest];
+        yield '131047 "More than 24 hours have passed since recipient last replied"' => [400, 131047, ProviderCode::InvalidRequest];
+        yield '133010 "Phone number not registered on the WhatsApp Business Platform."' => [400, 133010, ProviderCode::InvalidRequest];
+        yield '131056 pair rate limit' => [400, 131056, ProviderCode::RateLimited];
+        yield '130429 "Rate limit hit"' => [400, 130429, ProviderCode::RateLimited];
+        yield '131048 spam rate limit' => [400, 131048, ProviderCode::RateLimited];
+        yield '0 "unable to authenticate the app user"' => [400, 0, ProviderCode::AuthFailed];
+        yield '10 "Permission is either not granted or has been removed"' => [400, 10, ProviderCode::AuthFailed];
+        yield '200-299 permission' => [400, 230, ProviderCode::AuthFailed];
+        yield '131021 sender == recipient' => [400, 131021, ProviderCode::InvalidRecipient];
+        yield '131016 "A service is temporarily unavailable."' => [400, 131016, ProviderCode::ProviderUnavailable];
+        yield 'unlisted code on 403 falls back to the status' => [403, 999999, ProviderCode::AuthFailed];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('cloudApiCodes')]
+    public function testCloudApiErrorCodes(int $status, int $code, ProviderCode $expected): void
+    {
+        $payload = ['error' => ['code' => $code, 'message' => 'x', 'fbtrace_id' => 't']];
+        $this->mockClient->addResponse(
+            (new Response($status, ['Content-Type' => 'application/json']))
+                ->withBody($this->factory->createStream(json_encode($payload, JSON_THROW_ON_ERROR)))
+        );
+
+        try {
+            $this->buildConnector()->send(new ChatSendInput(to: '+1', body: 'x'));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $err) {
+            $this->assertSame($expected, $err->providerCode);
+        }
+    }
+
     private function buildConnector(): WhatsappBusinessChatConnector
     {
         return new WhatsappBusinessChatConnector(

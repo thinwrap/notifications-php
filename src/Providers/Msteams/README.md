@@ -23,15 +23,18 @@ Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$cl
 
 ## Auth setup
 
-Incoming-webhook URL from a Teams channel → "Connectors" → "Incoming Webhook". URL itself is the credential.
+Create the webhook with Workflows: in the Teams channel, add a workflow from the **"When a Teams webhook request is received"** trigger (Power Automate / Logic Apps) and copy its HTTP POST URL. Microsoft 365 Connectors ("Connectors" → "Incoming Webhook") are nearing deprecation; existing connector URLs are still accepted. Either way the URL itself is the credential (Workflows URLs carry a `sig` query parameter).
 
 ## Endpoint
 
-`https://{tenant}.webhook.office.com/webhookb2/{id}/IncomingWebhook/{token}`
+The configured `webhookUrl`, as-is:
+
+- Workflows: `https://{…}.logic.azure.com/workflows/{id}/triggers/manual/paths/invoke?…&sig={token}` or a `https://{…}.environment.api.powerplatform.com/powerautomate/automations/direct/workflows/{id}/…` URL
+- Legacy Microsoft 365 Connector: `https://{tenant}.webhook.office.com/webhookb2/{id}/IncomingWebhook/{token}`
 
 ## Narrowed input augmentations
 
-`to` is **ignored** (the webhook is pinned to its channel) and is intentionally `null` on the base input. `body` is synthesized into an Adaptive Card v1.4 with a single `TextBlock`, wrapped in the required Teams envelope: `{type: "message", attachments: [{contentType: "application/vnd.microsoft.card.adaptive", content: <card>}]}`. On success `status` is `Sent`. Teams Incoming Webhooks return the plain text `1` (no JSON, no message id), so `providerMessageId` is **always `null`** and `raw` carries the text.
+`to` is **ignored** (the webhook is pinned to its channel) and is intentionally `null` on the base input. `body` is synthesized into an Adaptive Card v1.4 with a single `TextBlock`, wrapped in the required Teams envelope: `{type: "message", attachments: [{contentType: "application/vnd.microsoft.card.adaptive", content: <card>}]}`. On success `status` is `Sent`. A Workflows webhook answers `202 Accepted` with an empty body; a legacy connector answers `200` with the plain text `1`. Neither returns a message id, so `providerMessageId` is **always `null`** and `raw` carries the response text.
 
 `MsteamsChatSendInput` extends `ChatSendInput` with a single below-baseline field, `card` (a full Adaptive Card payload as `array<string,mixed>`); when set it replaces the synthesized body-as-text card.
 
@@ -48,15 +51,16 @@ Any further Teams-specific fields go via `_passthrough['body']`, which is forwar
 | 5xx | (any) | `ProviderUnavailable` |
 | — | (unmatched) | `Unknown` |
 
-Teams quirk: revoked / malformed webhook URLs return HTTP 400 with a plain-text body containing `Invalid webhook URL` (not 404), special-cased to `AuthFailed`. A further PHP-specific stricture (stricter than the TS/Go siblings): Teams often returns **HTTP 200 with an error string in the body** (e.g. `...Teams endpoint returned HTTP error 429 with ContextId...`) — only the literal `1` means success, so any other 2xx body is remapped to an effective status (the embedded `HTTP error NNN` code when present, else 502) and classified through the same table. Before dispatch, an empty `webhookUrl` or a non-`https://` `webhookUrl` raises `InvalidRequest` (400) locally.
+Teams quirk: revoked / malformed webhook URLs return HTTP 400 with a plain-text body containing `Invalid webhook URL` (not 404), special-cased to `AuthFailed`. Success detection: `202` is always success (a Workflows trigger accepts the run with no body). Any other 2xx whose body embeds `HTTP error NNN` (legacy connectors report failures, throttling included, as **HTTP 200 with an error string**, e.g. `...Teams endpoint returned HTTP error 429 with ContextId...`) is remapped to that status and classified through the same table. From a legacy connector host (`*.webhook.office.com`, `outlook.office.com`) only the literal `1` means success, so any other 2xx body is remapped to 502; from a Workflows host any other 2xx is success. Before dispatch, an empty `webhookUrl` or a non-`https://` `webhookUrl` raises `InvalidRequest` (400) locally.
 
 The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
 
 ## `_passthrough` examples
 
-Forward Adaptive Card payloads (`type: "AdaptiveCard"`, `attachments`) via `_passthrough.body`. PHP connector validates that the response body is exactly `"1"` and throws on any other shape (stricter than TS sibling).
+Forward Adaptive Card payloads (`type: "AdaptiveCard"`, `attachments`) via `_passthrough.body`.
 
 ## Vendor docs
 
 - API reference: <https://learn.microsoft.com/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook>
+- Workflows Request trigger (202 response): <https://learn.microsoft.com/azure/connectors/connectors-native-reqres>
 - Adaptive Cards: <https://adaptivecards.io/explorer/>

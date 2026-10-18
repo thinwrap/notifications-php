@@ -17,7 +17,7 @@ $result = $sms->send(new SmsSendInput(to: '+15551234567', body: 'Hello, world!')
 
 ## Configuration
 
-`PlivoConfig(authId: string, authToken: string)`
+`PlivoConfig(authId: string, authToken: string, from: ?string = null)`
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 

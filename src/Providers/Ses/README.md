@@ -19,7 +19,9 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 
 `SesConfig(region: string, accessKeyId: string, secretAccessKey: string, sessionToken?: ?string, from?: ?string, senderName?: ?string)`
 
-`from` is the default sender used when `EmailSendInput.from` is empty; `senderName` (when set) wraps the resolved address as `Name <addr>`. `sessionToken` carries STS temporary credentials.
+`from` is the default sender used when `EmailSendInput.from` is empty; `senderName` (when set) becomes the display name of the resolved address. The name is quoted when it holds RFC 5322 specials (`"Acme, Inc." <addr>`) and sent as RFC 2047 encoded-words when it is non-ASCII, as SES requires for a Unicode "friendly from" name; a `from` that already reads `Name <addr>` keeps its own name. `sessionToken` carries STS temporary credentials.
+
+`region` must be an AWS region name (checked before sending, since it becomes the host the signed request goes to).
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
@@ -33,17 +35,23 @@ IAM access key + secret with `ses:SendEmail` permission. SigV4 derived per reque
 
 ## Narrowed input augmentations
 
-Standard email input applies. Attachments and custom `headers` are fully supported: when either is present the connector builds a raw multipart MIME message and sends it via SES `Content.Raw` (header values CRLF-stripped, non-ASCII From/Subject RFC 2047 encoded); otherwise it uses the simpler `Content.Simple` structure. Attachment `content` accepts a string or a PHP stream resource uniformly. `EmailSendInput.tags` map to SES `EmailTags: [{Name, Value}]`. SES v2-specific fields (e.g. `ConfigurationSetName`, `Tags`, template ARNs) go through `_passthrough.body` using PascalCase wire keys.
+Standard email input applies. Every message is sent as SES v2 `Content.Simple`:
+
+- **Attachments** map to `Content.Simple.Attachments` (`FileName`, base64 `RawContent`, `ContentType` when set). An attachment with a `contentId` is sent with `ContentId` + `ContentDisposition: INLINE`, so `<img src="cid:…">` resolves; the rest are `ATTACHMENT`. Attachment `content` accepts a string or a PHP stream resource uniformly.
+- **Custom `headers`** map to `Content.Simple.Headers` and follow SES's rules, checked before sending (`InvalidRequest`): at most 15 headers; names printable ASCII without `:` (max 126); values printable ASCII (max 995; name + value max 996) — a non-ASCII value is sent as RFC 2047 encoded-words (at most 75 characters each), and the limits apply to the encoded form. SES sets `BCC`, `CC`, `Content-Disposition`, `Content-Type`, `Date`, `From`, `Message-ID`, `MIME-Version`, `Reply-To`, `Return-Path`, `Subject` and `To` itself and rejects them as custom headers — use `cc` / `bcc` / `replyTo` / `subject` instead.
+- **`tags`** map to SES `EmailTags: [{Name: tag, Value: tag}]`. SES allows only ASCII letters, digits, `_` and `-` (max 256) in a tag, so any other tag is `InvalidRequest` before sending.
+
+SES v2-specific fields (e.g. `ConfigurationSetName`, `EmailTags`, `FeedbackForwardingEmailAddress`, template ARNs) go through `_passthrough.body` using PascalCase wire keys.
 
 ## Error mapping
 
-SES classifies the body error code (`__type` / `type` / `Code`, split on `#`) **first**; it takes precedence over the HTTP-status defaults below.
+SES classifies the error code **first**; it takes precedence over the HTTP-status defaults below. Most SendEmail errors share HTTP 400, so the code is read the way the AWS SDKs read it: the `x-amzn-ErrorType` header, else body `code` / `Code`, else `__type`, cut at `:` and after the last `#`.
 
 | Vendor HTTP | Vendor signal (`__type` / `Code`) | `ProviderCode` |
 |---|---|---|
-| (any) | `MessageRejected`, `InvalidEmailAddress` | `InvalidRecipient` |
-| (any) | `ValidationException`, `InvalidParameter`, `InvalidParameterValue`, `BadRequestException`, `MailFromDomainNotVerified`, `FromEmailAddressNotVerified` | `InvalidRequest` |
-| (any) | `AccessDenied`, `NotAuthorized`, `SignatureDoesNotMatch`, `InvalidClientTokenId`, `AccountSendingPaused`, `AccountSuspended` | `AuthFailed` |
+| (any) | `InvalidEmailAddress` | `InvalidRecipient` |
+| (any) | `MessageRejected` ("contains invalid content"), `ValidationException`, `InvalidParameter`, `InvalidParameterValue`, `BadRequestException`, `MailFromDomainNotVerified`, `FromEmailAddressNotVerified` | `InvalidRequest` |
+| (any) | `AccessDenied`, `NotAuthorized`, `SignatureDoesNotMatch`, `InvalidClientTokenId`, `SendingPausedException`, `AccountSendingPaused`, `AccountSuspended` | `AuthFailed` |
 | (any) | `Throttling`, `ThrottlingException`, `TooManyRequestsException` | `RateLimited` |
 | (any) | `ServiceUnavailable`, `InternalFailure` | `ProviderUnavailable` |
 | 401 / 403 | (no code match) | `AuthFailed` |
@@ -58,7 +66,7 @@ The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the 
 
 ## `_passthrough` examples
 
-Forward AWS-specific fields (e.g. `ConfigurationSetName`, `Tags`) via `_passthrough.body`.
+Forward AWS-specific fields (e.g. `ConfigurationSetName`, `EmailTags`, `FeedbackForwardingEmailAddress` — the v2 name for v1's `ReturnPath`) via `_passthrough.body`.
 
 ## Vendor docs
 

@@ -18,11 +18,15 @@ use Thinwrap\Notifications\Exception\ConnectorError;
 use Thinwrap\Notifications\Util\Passthrough;
 
 /**
- * OneSignal REST API v1 push connector. Mirrors TS `OneSignalPushConnector`
+ * OneSignal create-notification push connector. Mirrors TS `OneSignalPushConnector`
  * (notifications-ts/src/providers/one-signal/one-signal.connector.ts).
  *
- * Auth: `Authorization: Basic <restApiKey>` — REST API key sent verbatim
- * (no base64 wrapping), per OneSignal's documented `Authorization` scheme.
+ * Endpoint + auth follow the key generation, since OneSignal serves the two
+ * from different hosts: a current App API key (`os_v2_…`) goes to
+ * `POST https://api.onesignal.com/notifications?c=push` with
+ * `Authorization: Key <key>`; a legacy REST API key (no longer issuable
+ * since Nov 2024) goes to `https://onesignal.com/api/v1/notifications` with
+ * `Authorization: Basic <key>` (verbatim, no base64 wrapping).
  *
  * OneSignal returns HTTP 200 even when all recipients are invalid; the
  * `errors` field carries the failure detail and is body-mapped via
@@ -32,7 +36,28 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
 {
     public readonly string $id;
 
-    private const ENDPOINT = 'https://onesignal.com/api/v1/notifications';
+    private const ENDPOINT = 'https://api.onesignal.com/notifications?c=push';
+
+    private const LEGACY_ENDPOINT = 'https://onesignal.com/api/v1/notifications';
+
+    private const CURRENT_KEY_PREFIX = 'os_v2_';
+
+    /**
+     * Targeting params OneSignal treats as mutually exclusive with each other;
+     * when the caller supplies any of them via `_passthrough.body`, adding the
+     * default `include_subscription_ids` would make the request invalid.
+     */
+    private const TARGETING_KEYS = [
+        'include_aliases',
+        'include_subscription_ids',
+        'included_segments',
+        'excluded_segments',
+        'filters',
+        'include_player_ids',
+        'include_external_user_ids',
+        'include_email_tokens',
+        'include_phone_numbers',
+    ];
 
     private const INVALID_RECIPIENT_MARKERS = [
         'all included players are not subscribed',
@@ -42,6 +67,7 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
     ];
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly OneSignalConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -55,10 +81,12 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
     {
         $connectorBody = $this->buildBody($input);
 
+        $isCurrentKey = str_starts_with($this->config->restApiKey, self::CURRENT_KEY_PREFIX);
+
         $connectorHeaders = [
             'Content-Type'  => 'application/json',
             'Accept'        => 'application/json',
-            'Authorization' => 'Basic ' . $this->config->restApiKey,
+            'Authorization' => ($isCurrentKey ? 'Key ' : 'Basic ') . $this->config->restApiKey,
         ];
 
         $merged = Passthrough::merge(
@@ -71,7 +99,7 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
-        $url = self::ENDPOINT;
+        $url = $isCurrentKey ? self::ENDPOINT : self::LEGACY_ENDPOINT;
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();
@@ -85,7 +113,13 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
         /** @var array<string,mixed>|null $raw */
         $raw = $this->decodeJson($response);
 
-        if (is_array($raw) && array_key_exists('errors', $raw)) {
+        // OneSignal documents "Message Sent with Errors" (a real `id` plus
+        // `errors.invalid_*`) apart from "Message Not Sent" (`id: ""`). With an
+        // id the valid recipients were already notified, so throwing would make
+        // a retrying caller notify them twice: return success and leave the
+        // errors on `raw`.
+        $hasId = is_array($raw) && isset($raw['id']) && is_string($raw['id']) && $raw['id'] !== '';
+        if (!$hasId && is_array($raw) && array_key_exists('errors', $raw)) {
             $ticketErr = $this->mapTicketError($raw, $status);
             if ($ticketErr !== null) {
                 throw $ticketErr;
@@ -138,7 +172,7 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
             if ($narrowed->excluded_segments !== null) {
                 $body['excluded_segments']         = $narrowed->excluded_segments;
             }
-        } else {
+        } elseif (!self::passthroughHasTargeting($input)) {
             // Empty-recipient contract: mirror TS `to !== undefined`
             // semantics. PHP `to` is a required string, so it is always
             // "provided"; an empty string is forwarded verbatim as `['']` rather
@@ -200,6 +234,21 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
         }
 
         return $body;
+    }
+
+    private static function passthroughHasTargeting(PushSendInput $input): bool
+    {
+        $ptBody = $input->_passthrough['body'] ?? null;
+        if (!is_array($ptBody)) {
+            return false;
+        }
+        foreach (self::TARGETING_KEYS as $key) {
+            if (array_key_exists($key, $ptBody)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -268,11 +317,11 @@ final class OneSignalPushConnector extends BaseConnector implements PushConnecto
         $parsedSeconds = is_numeric($retryAfter) ? (int) $retryAfter : null;
 
         $providerCode = match (true) {
-            $statusCode === 401                  => ProviderCode::AuthFailed,
+            // 403: the key "lacks permission" for this app.
+            $statusCode === 401, $statusCode === 403 => ProviderCode::AuthFailed,
             $statusCode === 400                  => ProviderCode::InvalidRequest,
             $statusCode === 404                  => ProviderCode::InvalidRequest,
             $statusCode === 429                  => ProviderCode::RateLimited,
-            $statusCode === 500, $statusCode === 503 => ProviderCode::ProviderUnavailable,
             $statusCode >= 500                   => ProviderCode::ProviderUnavailable,
             default                              => ProviderCode::Unknown,
         };

@@ -105,9 +105,8 @@ auto-discovers via `php-http/discovery` when omitted.
 Native `enum`, not class constants:
 
 ```php
-enum TwilioRegion: string {
-    case Us1 = 'us1';  case Us2 = 'us2';  case Ie1 = 'ie1';  case Au1 = 'au1';
-    case Br1 = 'br1';  case De1 = 'de1';  case Jp1 = 'jp1';  case Sg1 = 'sg1';
+enum TwilioEdge: string {
+    case Sydney = 'sydney';  case Dublin = 'dublin';  case Frankfurt = 'frankfurt';  // …
 }
 ```
 
@@ -130,6 +129,16 @@ Canonical baseline mapping (override per vendor when the response carries finer 
 | 5xx | `ProviderUnavailable` |
 | network failure (PSR-18 `ClientExceptionInterface`) | `ProviderUnavailable` |
 | unparseable | `Unknown` |
+
+## Error contract
+
+Throw `ConnectorError` for anything the library decides: vendor errors, transport
+failures, request data rejected before sending (`InvalidRequest`, no request made), and
+facade/config misuse the code checks itself (provider id outside the channel, mismatched
+config class, an invalid config value). Leave PHP's own checks native — a wrong argument
+type is a `\TypeError`, an unknown backed-enum string is a `\ValueError` from `::from()`.
+Never let a PSR-7/PSR-18/JSON exception escape raw, and never copy its message into the
+`ConnectorError`: those messages embed URLs and header values that can be credentials.
 
 ## `Retry-After` surfacing pattern
 

@@ -60,10 +60,12 @@ final class Email implements EmailConnectorInterface
      */
     public function __construct(
         ?NotificationProviderId $providerId,
+        #[\SensitiveParameter]
         SesConfig|ResendConfig|MailgunConfig|SendgridConfig|PostmarkConfig|MailersendConfig|MailtrapConfig|BrevoConfig|SparkpostConfig|ScalewayConfig|null $config = null,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
+        #[\SensitiveParameter]
         ?EmailConnectorInterface $connector = null,
     ) {
         $this->providerId = $providerId;
@@ -124,7 +126,7 @@ final class Email implements EmailConnectorInterface
      * Build the facade from a pre-constructed email connector. Mirrors TS's
      * `new Email(connector)` overload.
      */
-    public static function fromConnector(EmailConnectorInterface $connector): self
+    public static function fromConnector(#[\SensitiveParameter] EmailConnectorInterface $connector): self
     {
         return new self(null, connector: $connector);
     }

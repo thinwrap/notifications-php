@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Infobip;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Infobip SMS connector configuration. Infobip is unique in v1.0 in requiring a
  * **per-account base URL** — Infobip provisions a customer-specific subdomain
@@ -17,8 +19,11 @@ namespace Thinwrap\Notifications\Providers\Infobip;
  */
 final readonly class InfobipConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
         public string $baseUrl,
+        #[\SensitiveParameter]
         public string $apiKey,
         public ?string $from = null,
     ) {}

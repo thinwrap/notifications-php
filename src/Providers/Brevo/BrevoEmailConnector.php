@@ -40,6 +40,7 @@ final class BrevoEmailConnector extends BaseConnector implements EmailConnectorI
     private const ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly BrevoConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

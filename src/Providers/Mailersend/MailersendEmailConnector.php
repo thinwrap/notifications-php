@@ -16,6 +16,7 @@ use Thinwrap\Notifications\DTO\Email\EmailSendResult;
 use Thinwrap\Notifications\DTO\Email\EmailStatus;
 use Thinwrap\Notifications\Enum\ProviderCode;
 use Thinwrap\Notifications\Exception\ConnectorError;
+use Thinwrap\Notifications\Util\JsonObject;
 use Thinwrap\Notifications\Util\Passthrough;
 
 /**
@@ -27,16 +28,17 @@ use Thinwrap\Notifications\Util\Passthrough;
  *
  * 2xx is 202 Accepted with empty body; `providerMessageId` is sourced from the
  * `X-Message-Id` response header (PSR-7 `getHeaderLine` returns `''` when
- * absent → coerced to `null`).
+ * absent → coerced to `null`). A 202 can still carry a `warnings` body when
+ * recipients are on a suppression list: `ALL_SUPPRESSED` means the email was
+ * not sent (and no `X-Message-Id` is issued), `SOME_SUPPRESSED` means it went
+ * to the remaining recipients.
  *
  * Tag cap: MailerSend allows up to 5 tags; the connector truncates `tags` to
  * first 5 silently per the ≥90%-of-providers baseline rule graceful
  * degradation.
  *
- * `reply_to` is the singular object form (`{email: ...}`) — PHP's
- * `EmailSendInput::$replyTo` is a single string, so the singular shape is the
- * natural fit. NOTE: the TS connector uses array form; PHP-only delta documented
- * in story dev-notes.
+ * `reply_to` is a single object (`{email, name}`), as MailerSend documents it,
+ * not an array.
  */
 final class MailersendEmailConnector extends BaseConnector implements EmailConnectorInterface
 {
@@ -47,6 +49,7 @@ final class MailersendEmailConnector extends BaseConnector implements EmailConne
     private const TAG_CAP = 5;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly MailersendConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -73,6 +76,11 @@ final class MailersendEmailConnector extends BaseConnector implements EmailConne
 
         /** @var array<string,mixed> $mergedBody */
         $mergedBody = $merged['body'];
+        // subject is "Not required if `template_id` is present with default
+        // subject set": an empty one would override the template's.
+        if (isset($mergedBody['template_id']) && ($mergedBody['subject'] ?? null) === '') {
+            unset($mergedBody['subject']);
+        }
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
@@ -84,14 +92,29 @@ final class MailersendEmailConnector extends BaseConnector implements EmailConne
         }
 
         $messageId = $response->getHeaderLine('X-Message-Id') ?: null;
+        $parsed = $this->decodeJson($response);
+
+        if ($parsed !== null && self::hasWarning($parsed, 'ALL_SUPPRESSED')) {
+            $vendorMessage = isset($parsed['message']) && is_string($parsed['message']) && $parsed['message'] !== ''
+                ? $parsed['message']
+                : 'MailerSend: all recipients are suppressed; email not sent';
+
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRecipient,
+                providerMessage: $vendorMessage,
+                cause: ['raw' => $parsed, 'retryAfter' => null],
+                statusCode: $status,
+            );
+        }
 
         // MailerSend returns 202 Accepted with the message id in X-Message-Id —
         // an accept-for-delivery acknowledgement → `Queued` (vendor-faithful).
+        // Any `SOME_SUPPRESSED` warnings ride along on `raw`.
         return new EmailSendResult(
             success: true,
             status: EmailStatus::Queued,
             providerMessageId: $messageId,
-            raw: ['messageId' => $messageId],
+            raw: array_merge(['messageId' => $messageId], $parsed ?? []),
         );
     }
 
@@ -131,8 +154,107 @@ final class MailersendEmailConnector extends BaseConnector implements EmailConne
         if ($input->attachments !== null && $input->attachments !== []) {
             $body['attachments'] = $this->mapAttachments($input->attachments);
         }
+        if ($input->headers !== null && $input->headers !== []) {
+            // MailerSend takes custom headers as a list of `{name, value}` objects.
+            $body['headers'] = array_map(
+                static fn(string $name, string $value): array => ['name' => $name, 'value' => $value],
+                array_keys($input->headers),
+                array_values($input->headers),
+            );
+        }
+        if ($input instanceof MailersendNarrowedInput) {
+            $body = $this->applyNarrowedFields($input, $body);
+        }
 
         return $body;
+    }
+
+    /**
+     * MailerSend `POST /v1/email` wire names: `template_id`, `personalization`
+     * (`[{email, data}]`), `send_at` (unix seconds, at most 72 h ahead),
+     * `precedence_bulk`, and `settings`, which "Can only contain the keys:
+     * track_clicks, track_opens and track_content". `variables` is not sent:
+     * MailerSend removed simple personalization from the API and its SDKs.
+     *
+     * @param array<string,mixed> $body
+     *
+     * @return array<string,mixed>
+     */
+    private function applyNarrowedFields(MailersendNarrowedInput $input, array $body): array
+    {
+        $fields = [
+            'template_id' => $input->templateId,
+            // Each entry's `data` is an object (`{"var": "value"}`), `{}` when empty.
+            'personalization' => $input->personalization !== null
+                ? array_map(static function (array $p): array {
+                    // MailerSend personalization entries are `{email, data}`;
+                    // without an object `data` there is nothing to substitute.
+                    if (!isset($p['data']) || !is_array($p['data'])) {
+                        throw new ConnectorError(
+                            providerCode: ProviderCode::InvalidRequest,
+                            providerMessage: 'MailerSend personalization entries need a `data` map',
+                            statusCode: 400,
+                        );
+                    }
+                    $p['data'] = JsonObject::of($p['data']);
+
+                    return $p;
+                }, $input->personalization)
+                : null,
+            'send_at' => $input->sendAt,
+            'precedence_bulk' => $input->precedenceBulk,
+        ];
+        foreach ($fields as $key => $value) {
+            if ($value !== null) {
+                $body[$key] = $value;
+            }
+        }
+        if ($input->settings !== null) {
+            // MailerSend: settings "Can only contain the keys: track_clicks,
+            // track_opens and track_content and a boolean value of true or
+            // false". Both our camelCase and MailerSend's own snake_case keys
+            // are accepted; anything else is refused rather than silently
+            // dropped (a dropped track_clicks:false leaves tracking on).
+            $keys = [
+                'trackClicks' => 'track_clicks', 'track_clicks' => 'track_clicks',
+                'trackOpens' => 'track_opens', 'track_opens' => 'track_opens',
+                'trackContent' => 'track_content', 'track_content' => 'track_content',
+            ];
+            $settings = [];
+            foreach ($input->settings as $key => $value) {
+                if (!isset($keys[$key]) || !is_bool($value)) {
+                    throw new ConnectorError(
+                        providerCode: ProviderCode::InvalidRequest,
+                        providerMessage: 'MailerSend settings accept only track_clicks, track_opens and track_content with boolean values',
+                        statusCode: 400,
+                    );
+                }
+                $settings[$keys[$key]] = $value;
+            }
+            if ($settings !== []) {
+                $body['settings'] = $settings;
+            }
+        }
+
+        return $body;
+    }
+
+    /**
+     * @param array<string,mixed> $parsed
+     */
+    private static function hasWarning(array $parsed, string $type): bool
+    {
+        $warnings = $parsed['warnings'] ?? null;
+        if (!is_array($warnings)) {
+            return false;
+        }
+        foreach ($warnings as $warning) {
+            if (is_array($warning) && ($warning['type'] ?? null) === $type) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -148,9 +270,9 @@ final class MailersendEmailConnector extends BaseConnector implements EmailConne
                 'filename' => $a->filename,
                 'content' => base64_encode($this->normalizeAttachmentContent($a)),
             ];
-            if ($a->contentType !== null && $a->contentType !== '') {
-                $entry['content_type'] = $a->contentType;
-            }
+            // MailerSend attachments are `content`, `filename`, `disposition`
+            // and `id` only — there is no content-type field; MailerSend
+            // derives the type from the filename.
             if ($a->contentId !== null) {
                 $entry['id'] = $a->contentId;
                 $entry['disposition'] = 'inline';

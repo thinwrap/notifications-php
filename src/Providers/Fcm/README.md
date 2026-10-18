@@ -23,7 +23,7 @@ Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$cl
 
 ## Auth setup
 
-Service-account JSON from Firebase Console → Project Settings → Service accounts. JWT RS256 signed locally, exchanged for OAuth2 access token at `https://oauth2.googleapis.com/token`. **Stateless by default** — the wrapper signs a fresh JWT per send. Supply an optional `TokenCacheHook` on `FcmConfig` to amortize signing cost. Cache key shape: `fcm:<projectId>:<clientEmail>`. Epoch is **seconds** (PHP `time()`) — divergent from TypeScript sibling's ms.
+Service-account JSON from Firebase Console → Project Settings → Service accounts. JWT RS256 signed locally, exchanged for OAuth2 access token at `https://oauth2.googleapis.com/token`. **Stateless by default** — the wrapper signs a fresh JWT per send. Supply an optional `TokenCacheHook` on `FcmConfig` to reuse the access token (Google issues it for an hour) instead of exchanging a new one per send. Cache key shape: `fcm:<projectId>:<clientEmail>`. Epoch is **seconds** (PHP `time()`) — divergent from TypeScript sibling's ms.
 
 ### Optional `TokenCacheHook`
 
@@ -35,7 +35,7 @@ This connector signs a fresh JWT on every send by default (stateless — the wra
 
 ## Narrowed input augmentations
 
-Standard push input (`to`, `title`, `body`, `data` — the 4-field baseline). `FcmPushSendInput` extends `PushSendInput` with FCM-narrowed fields: `ttl` (int seconds; emitted as `android.ttl = "<n>s"`) plus the platform blocks `android`, `apns`, `webpush`, and `fcm_options` (each `array<string,mixed>`, populated with documented FCM HTTP v1 fields). Note the `apns` block here is the FCM-side APNs payload nested inside an FCM message, not the standalone APNs connector. Rarely-used FCM `message` fields (topic/condition targeting, etc.) flow through `_passthrough.body`.
+Standard push input (`to`, `title`, `body`, `data` — the 4-field baseline). `FcmPushSendInput` extends `PushSendInput` with FCM-narrowed fields: `ttl` (int seconds; emitted as `android.ttl = "<n>s"`) plus the platform blocks `android`, `apns`, `webpush`, and `fcm_options` (each `array<string,mixed>`, populated with documented FCM HTTP v1 fields). Note the `apns` block here is the FCM-side APNs payload nested inside an FCM message, not the standalone APNs connector. Rarely-used FCM `message` fields flow through `_passthrough.body`. To target a topic, condition or Firebase Installation ID instead of a device, pass `_passthrough.body.message.topic` / `condition` / `fid`: FCM allows only one target, so the connector then drops the `token` it built from `to` (and never sends an empty `token`).
 
 ## Error mapping
 
@@ -45,7 +45,7 @@ Standard push input (`to`, `title`, `body`, `data` — the 4-field baseline). `F
 | 404 | (any) | `InvalidRecipient` |
 | 400 | (any) | `InvalidRequest` |
 | 429 | (any) | `RateLimited` |
-| 500 / 503 | (any) | `ProviderUnavailable` |
+| 5xx | (any) | `ProviderUnavailable` |
 | (other status) | `UNAUTHENTICATED`, `SENDER_ID_MISMATCH` | `AuthFailed` |
 | (other status) | `INVALID_ARGUMENT` | `InvalidRequest` |
 | (other status) | `NOT_FOUND` | `InvalidRecipient` |
@@ -53,7 +53,7 @@ Standard push input (`to`, `title`, `body`, `data` — the 4-field baseline). `F
 | (other status) | `UNAVAILABLE`, `INTERNAL` | `ProviderUnavailable` |
 | — | (unmatched) | `Unknown` |
 
-HTTP status is classified first; the FCM `error.status` string (from the JSON `error.status` field) is consulted only for status codes not covered by the rows above. Auth-flow failures (invalid private key, `openssl_sign` failure, or a failed OAuth token exchange) surface as `AuthFailed` before the send.
+HTTP status is classified first; the FCM `error.status` string (from the JSON `error.status` field) is consulted only for status codes not covered by the rows above. Auth-flow failures surface before the send: an invalid private key, an `openssl_sign` failure, or an OAuth token exchange rejected with 400/401 (`invalid_grant`, `invalid_client`) is `AuthFailed`; a token exchange answered with 429 is `RateLimited` and one answered with 5xx is `ProviderUnavailable`, since those are Google throttling or an outage rather than bad credentials.
 
 The connector surfaces 429 via `ConnectorError(providerCode: RateLimited)`; the raw `Retry-After` header (when present) is on `$e->cause['retryAfter']` and parsed seconds are woven into `$e->providerMessage` (and also on `$e->cause['retryAfterSeconds']`). There is no top-level `retryAfterSeconds` field — the wrapper never retries.
 

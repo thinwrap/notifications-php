@@ -12,8 +12,11 @@ use Thinwrap\Notifications\DTO\Email\EmailSendInput;
  * below the ≥90%-of-providers threshold the normalized surface requires):
  * `category`, `customVariables`, `templateUuid`, `templateVariables`.
  *
- * At v1.0 these are documented as `_passthrough.body` keys (consumer writes
- * snake_case directly). Promotion to first-class fields deferred to v1.1.
+ * Wire mapping: `category` → `category`, `customVariables` →
+ * `custom_variables`, `templateUuid` → `template_uuid`, `templateVariables` →
+ * `template_variables`. A template send drops `subject` / `text` / `html`
+ * (Mailtrap's template schema has none) and rejects `category`.
+ * `_passthrough.body` still wins on conflict.
  */
 final readonly class MailtrapNarrowedInput extends EmailSendInput
 {
@@ -24,7 +27,7 @@ final readonly class MailtrapNarrowedInput extends EmailSendInput
      * @param array<string,string>|null $headers
      * @param list<string>|null $tags
      * @param array{body?:array<string,mixed>,headers?:array<string,string>,query?:array<string,string>}|null $_passthrough
-     * @param array<string,mixed>|null $customVariables
+     * @param array<string,string>|null $customVariables
      * @param array<string,mixed>|null $templateVariables
      */
     public function __construct(

@@ -31,6 +31,7 @@ final class WonderpushPushConnector extends BaseConnector implements PushConnect
     private const ENDPOINT = 'https://management-api.wonderpush.com/v1/deliveries';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly WonderpushConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -111,7 +112,10 @@ final class WonderpushPushConnector extends BaseConnector implements PushConnect
             }
         }
 
-        // notification block.
+        // notification block. Per the WonderPush notification object, the
+        // platform-neutral alert carries only `title`/`text`; sound, badge and
+        // subtitle live under the per-platform `alert.ios` / `alert.android`
+        // sub-objects, and custom data goes under `push.custom`.
         $alert = [];
         if (($input->title ?? '') !== '') {
             $alert['title'] = $input->title;
@@ -119,33 +123,35 @@ final class WonderpushPushConnector extends BaseConnector implements PushConnect
         if (($input->body ?? '') !== '') {
             $alert['text']  = $input->body;
         }
-        if ($narrowed !== null && $narrowed->subtitle !== null) {
-            $alert['subtitle'] = $narrowed->subtitle;
+        if ($narrowed !== null) {
+            if ($narrowed->subtitle !== null) {
+                $alert['ios']['subtitle']    = $narrowed->subtitle;
+            }
+            if ($narrowed->sound !== null) {
+                $alert['ios']['sound']       = $narrowed->sound;
+                $alert['android']['sound']   = $narrowed->sound;
+            }
+            if ($narrowed->badge !== null) {
+                $alert['ios']['badge']       = $narrowed->badge;
+            }
         }
 
         $notification = [];
         if ($alert !== []) {
             $notification['alert'] = $alert;
         }
-        if ($narrowed !== null) {
-            if ($narrowed->sound !== null) {
-                $notification['sound']  = $narrowed->sound;
-            }
-            if ($narrowed->badge !== null) {
-                $notification['badge']  = $narrowed->badge;
-            }
-        }
         if ($input->data !== null) {
-            $notification['custom'] = $input->data;
+            $notification['push'] = ['custom' => $input->data];
         }
 
         if ($narrowed !== null && $narrowed->notification !== null) {
-            foreach ($narrowed->notification as $k => $v) {
-                $notification[$k] = $v;
-            }
-            if (isset($narrowed->notification['alert']) && is_array($narrowed->notification['alert']) && $alert !== []) {
-                $notification['alert'] = array_merge($alert, $narrowed->notification['alert']);
-            }
+            // Deep merge (caller wins per leaf) so a caller's own `alert.ios` /
+            // `push` keys sit alongside the synthesized ones instead of
+            // replacing the whole sub-object.
+            $notification = Passthrough::merge(
+                ['body' => $notification],
+                ['body' => $narrowed->notification],
+            )['body'];
         }
 
         if ($notification !== []) {
@@ -173,7 +179,6 @@ final class WonderpushPushConnector extends BaseConnector implements PushConnect
             $statusCode === 401                  => ProviderCode::AuthFailed,
             $statusCode === 404                  => ProviderCode::InvalidRecipient,
             $statusCode === 429                  => ProviderCode::RateLimited,
-            $statusCode === 500, $statusCode === 503 => ProviderCode::ProviderUnavailable,
             $statusCode === 400                  => ProviderCode::InvalidRequest,
             $statusCode >= 400 && $statusCode < 500 => ProviderCode::InvalidRequest,
             $statusCode >= 500                   => ProviderCode::ProviderUnavailable,

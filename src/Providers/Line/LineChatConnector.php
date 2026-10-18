@@ -41,6 +41,7 @@ final class LineChatConnector extends BaseConnector implements ChatConnectorInte
     private const ENDPOINT = 'https://api.line.me/v2/bot/message/push';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly LineConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

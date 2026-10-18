@@ -68,6 +68,7 @@ final class VonageSmsConnector extends BaseConnector implements SmsConnectorInte
     ];
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly VonageConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

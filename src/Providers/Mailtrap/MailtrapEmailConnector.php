@@ -16,6 +16,7 @@ use Thinwrap\Notifications\DTO\Email\EmailSendResult;
 use Thinwrap\Notifications\DTO\Email\EmailStatus;
 use Thinwrap\Notifications\Enum\ProviderCode;
 use Thinwrap\Notifications\Exception\ConnectorError;
+use Thinwrap\Notifications\Util\JsonObject;
 use Thinwrap\Notifications\Util\Passthrough;
 
 /**
@@ -44,6 +45,7 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
     private const PRODUCTION_ENDPOINT = 'https://send.api.mailtrap.io/api/send';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly MailtrapConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -81,6 +83,27 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
         $mergedBody = $merged['body'];
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
+
+        // The send request body is `oneOf` EmailWithText / EmailWithHtml /
+        // EmailWithTextAndHtml / EmailFromTemplate (OpenAPI in
+        // docs.mailtrap.io/developers/email-sending/transactional/send-transactional-email.md),
+        // and `EmailFromTemplate` has no subject, text, html or category — the
+        // template carries them. The official SDKs model the same split:
+        // mailtrap-nodejs `src/types/mailtrap.ts` (`MailFromTemplateContent =
+        // { template_uuid; template_variables? }`, and `category?: string; //
+        // Only allowed when not using template_uuid`) and mailtrap-python
+        // `MailFromTemplate`. The base input always has a subject, so it and
+        // the bodies are dropped; an explicit category is the caller's mistake.
+        if (isset($mergedBody['template_uuid'])) {
+            if (isset($mergedBody['category'])) {
+                throw new ConnectorError(
+                    providerCode: ProviderCode::InvalidRequest,
+                    providerMessage: 'Mailtrap does not accept category with template_uuid; set it on the template',
+                    statusCode: null,
+                );
+            }
+            unset($mergedBody['subject'], $mergedBody['text'], $mergedBody['html']);
+        }
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
 
@@ -151,6 +174,21 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
         if ($input->attachments !== null && $input->attachments !== []) {
             $body['attachments'] = $this->buildAttachments($input->attachments);
         }
+        if ($input instanceof MailtrapNarrowedInput) {
+            // Mailtrap send API top-level keys (docs OpenAPI; mailtrap-nodejs types).
+            $fields = [
+                'category' => $input->category,
+                // Both are objects in the send schema; an empty one is `{}`.
+                'custom_variables' => $input->customVariables !== null ? JsonObject::of($input->customVariables) : null,
+                'template_uuid' => $input->templateUuid,
+                'template_variables' => $input->templateVariables !== null ? JsonObject::of($input->templateVariables) : null,
+            ];
+            foreach ($fields as $key => $value) {
+                if ($value !== null) {
+                    $body[$key] = $value;
+                }
+            }
+        }
 
         return $body;
     }
@@ -197,14 +235,17 @@ final class MailtrapEmailConnector extends BaseConnector implements EmailConnect
      */
     private function validateConfig(): void
     {
-        if ($this->config->mode === MailtrapMode::Sandbox && $this->config->inboxId === null) {
+        // An empty inboxId is as absent as null: in sandbox it would build
+        // `/api/send/` (a 404), in production it is not a real inbox.
+        $hasInbox = $this->config->inboxId !== null && $this->config->inboxId !== '';
+        if ($this->config->mode === MailtrapMode::Sandbox && !$hasInbox) {
             throw new ConnectorError(
                 providerCode: ProviderCode::InvalidRequest,
                 providerMessage: 'Mailtrap sandbox mode requires inboxId in config',
                 statusCode: null,
             );
         }
-        if ($this->config->mode === MailtrapMode::Production && $this->config->inboxId !== null) {
+        if ($this->config->mode === MailtrapMode::Production && $hasInbox) {
             throw new ConnectorError(
                 providerCode: ProviderCode::InvalidRequest,
                 providerMessage: 'Mailtrap production mode forbids inboxId in config (it is sandbox-only)',

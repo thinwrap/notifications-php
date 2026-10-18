@@ -23,7 +23,7 @@ Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$cl
 
 ## Auth setup
 
-Application ID + Access Token from WonderPush dashboard. HTTP Basic auth as `<applicationId>:<accessToken>`.
+Application ID + Access Token from WonderPush dashboard. The access token is sent as `Authorization: Bearer <accessToken>`.
 
 ## Endpoint
 
@@ -31,9 +31,9 @@ Application ID + Access Token from WonderPush dashboard. HTTP Basic auth as `<ap
 
 ## Narrowed input augmentations
 
-`to` → `targetUserIds: [to]`; `title` → `notification.alert.title`; `body` → `notification.alert.text`; `data` → `notification.custom`. `config.applicationId` is forwarded into the body as `applicationId`. On success `providerMessageId` comes from the response `id` (falling back to `notificationId`).
+`to` → `targetUserIds: [to]`; `title` → `notification.alert.title`; `body` → `notification.alert.text`; `data` → `notification.push.custom` (WonderPush's custom-data key). `config.applicationId` is forwarded into the body as `applicationId`. On success `providerMessageId` comes from the response `id` (falling back to `notificationId`).
 
-The wire body is camelCase-native. `WonderpushPushSendInput` extends `PushSendInput` with `targetUserIds` (a supplied slice replaces the default `[to]`), `targetSegmentIds`, `customSegmentation`, `subtitle`, `sound`, `badge`, `notification` (a block override, deep-merged over the built block), `actions`, and `categories`. Any further WonderPush fields go via `_passthrough.body` (merged verbatim — no casing transform).
+The wire body is camelCase-native. `WonderpushPushSendInput` extends `PushSendInput` with `targetUserIds` (a supplied slice replaces the default `[to]`), `targetSegmentIds`, `customSegmentation`, `subtitle` (→ `notification.alert.ios.subtitle`), `sound` (→ `notification.alert.ios.sound` **and** `notification.alert.android.sound`), `badge` (→ `notification.alert.ios.badge`), `notification` (a block override, deep-merged over the built block — caller wins per leaf, so your own `alert.ios` / `alert.android` / `push` keys sit alongside the synthesized ones), `actions`, and `categories`. Any further WonderPush fields go via `_passthrough.body` (merged verbatim — no casing transform).
 
 ## Error mapping
 
@@ -58,5 +58,6 @@ Forward WonderPush-specific fields (e.g. `targetSegmentIds`, `notification`, `ac
 ## Vendor docs
 
 - API reference: https://docs.wonderpush.com/reference/post-deliveries
+- Notification object: https://docs.wonderpush.com/reference/notification
 - Auth: https://docs.wonderpush.com/reference/authentication
 - Rate limits: https://docs.wonderpush.com/reference/rate-limiting

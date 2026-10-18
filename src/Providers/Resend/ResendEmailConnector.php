@@ -16,6 +16,7 @@ use Thinwrap\Notifications\DTO\Email\EmailSendResult;
 use Thinwrap\Notifications\DTO\Email\EmailStatus;
 use Thinwrap\Notifications\Enum\ProviderCode;
 use Thinwrap\Notifications\Exception\ConnectorError;
+use Thinwrap\Notifications\Util\Mailbox;
 use Thinwrap\Notifications\Util\Passthrough;
 
 /**
@@ -34,6 +35,7 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
     private const ENDPOINT = 'https://api.resend.com/emails';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly ResendConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -90,9 +92,8 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
     private function buildBody(EmailSendInput $input): array
     {
         $fromAddress = $input->from !== '' ? $input->from : $this->config->from;
-        $from = $this->config->senderName !== null
-            ? "{$this->config->senderName} <{$fromAddress}>"
-            : $fromAddress;
+        // Resend: "To include a friendly name, pass the sender as `Name <email@example.com>`".
+        $from = Mailbox::format($this->config->senderName, $fromAddress);
 
         $body = [
             'from' => $from,
@@ -120,6 +121,17 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
         if ($input->tags !== null && $input->tags !== []) {
             $tags = [];
             foreach ($input->tags as $t) {
+                // Resend tag name/value: "It can only contain ASCII letters
+                // (a–z, A–Z), numbers (0–9), underscores (_), or dashes (-). It
+                // can contain no more than 256 characters." Checked here so the
+                // caller learns which tag is wrong instead of a bare 422.
+                if (preg_match('/^[A-Za-z0-9_-]{1,256}$/D', $t) !== 1) {
+                    throw new ConnectorError(
+                        providerCode: ProviderCode::InvalidRequest,
+                        providerMessage: "Resend: tag '{$t}' may only contain ASCII letters, digits, '_' or '-' (max 256)",
+                        statusCode: 400,
+                    );
+                }
                 $tags[] = ['name' => 'tag', 'value' => $t];
             }
             $body['tags'] = $tags;
@@ -146,6 +158,11 @@ final class ResendEmailConnector extends BaseConnector implements EmailConnector
             ];
             if ($a->contentType !== null && $a->contentType !== '') {
                 $entry['content_type'] = $a->contentType;
+            }
+            // Resend: "You can embed images using the content id parameter for
+            // the attachment … `<img src="cid:...">`".
+            if ($a->contentId !== null && $a->contentId !== '') {
+                $entry['content_id'] = $a->contentId;
             }
             $out[] = $entry;
         }

@@ -11,11 +11,15 @@ use Thinwrap\Notifications\DTO\Email\EmailSendInput;
  * SendGrid-specific narrowed input. Captures fields below the ≥90% baseline
  * per the ≥90%-of-providers baseline rule.
  *
- * Templated email (`templateId` + `dynamicTemplateData`) is intentionally NOT
- * promoted to the baseline at v1.0 — accessible via `_passthrough.body.template_id`
- * + `_passthrough.body.personalizations[0].dynamic_template_data` until v1.1.
+ * Wire mapping (v3 mail/send): `templateId` → `template_id`,
+ * `dynamicTemplateData` → `personalizations[0].dynamic_template_data`,
+ * `sendAt` (unix seconds) → `send_at`, `batchId` → `batch_id`, `asm` → `asm`,
+ * `mailSettings` → `mail_settings`, `trackingSettings` → `tracking_settings`,
+ * `ipPoolName` → `ip_pool_name`, `categories` → `categories` (merged with the
+ * base `tags`, de-duplicated). The settings arrays use SendGrid's own
+ * snake_case keys. `_passthrough.body` still wins on conflict.
  *
- * @phpstan-type Asm array{group_id?:int,groups_to_display?:list<int>}
+ * @phpstan-type Asm array{group_id:int,groups_to_display?:list<int>}
  * @phpstan-type MailSettings array<string,mixed>
  * @phpstan-type TrackingSettings array<string,mixed>
  */

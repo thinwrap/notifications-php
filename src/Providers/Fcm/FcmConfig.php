@@ -7,6 +7,7 @@ namespace Thinwrap\Notifications\Providers\Fcm;
 use Thinwrap\Notifications\Contract\TokenCacheHook;
 use Thinwrap\Notifications\Enum\ProviderCode;
 use Thinwrap\Notifications\Exception\ConnectorError;
+use Thinwrap\Notifications\Util\RedactsSecrets;
 
 /**
  * Firebase Cloud Messaging (FCM HTTP v1) configuration.
@@ -26,6 +27,18 @@ use Thinwrap\Notifications\Exception\ConnectorError;
  */
 final readonly class FcmConfig
 {
+    use RedactsSecrets;
+
+    /**
+     * Copied out of the redacted service account, so it is redacted too.
+     *
+     * @return list<string>
+     */
+    protected function redactedProperties(): array
+    {
+        return ['privateKey'];
+    }
+
     public string $projectId;
 
     public string $clientEmail;
@@ -37,6 +50,7 @@ final readonly class FcmConfig
      *                                       wrapper does NOT read files).
      */
     public function __construct(
+        #[\SensitiveParameter]
         public array $serviceAccount,
         public ?TokenCacheHook $tokenCache = null,
     ) {
@@ -55,7 +69,7 @@ final readonly class FcmConfig
      *
      * @param array<string,mixed> $serviceAccount
      */
-    private static function requireField(array $serviceAccount, string $key): string
+    private static function requireField(#[\SensitiveParameter] array $serviceAccount, string $key): string
     {
         $value = $serviceAccount[$key] ?? null;
         if (!is_string($value) || $value === '') {

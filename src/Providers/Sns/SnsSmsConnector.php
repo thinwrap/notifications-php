@@ -80,6 +80,7 @@ class SnsSmsConnector extends BaseConnector implements SmsConnectorInterface
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly SnsConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -91,6 +92,7 @@ class SnsSmsConnector extends BaseConnector implements SmsConnectorInterface
 
     public function send(SmsSendInput $input): SmsSendResult
     {
+        $this->assertRegion();
         $topicArn = $input instanceof SnsNarrowedInput ? $input->topicArn : null;
         if ($input->to === '' && ($topicArn === null || $topicArn === '')) {
             throw new ConnectorError(
@@ -196,12 +198,7 @@ class SnsSmsConnector extends BaseConnector implements SmsConnectorInterface
 
         // Use a form-style post with the exact pre-serialized body. We override
         // Content-Type via finalHeaders so this is effectively raw POST.
-        $request = $this->getRequestFactory()
-            ->createRequest('POST', $url)
-            ->withBody($this->getStreamFactory()->createStream($serializedBody));
-        foreach ($finalHeaders as $name => $value) {
-            $request = $request->withHeader($name, $value);
-        }
+        $request = $this->buildRequest('POST', $url, $finalHeaders, $serializedBody);
 
         // Route through the hardened base `dispatch()` for parity with every
         // other connector: a transport failure surfaces a generic message plus
@@ -236,8 +233,14 @@ class SnsSmsConnector extends BaseConnector implements SmsConnectorInterface
      *
      * @return array<string,string>
      */
-    private function signRequest(string $serializedBody, array $additionalSignedHeaders, string $isoTimestamp, string $canonicalQueryString = ''): array
-    {
+    private function signRequest(
+        #[\SensitiveParameter]
+        string $serializedBody,
+        #[\SensitiveParameter]
+        array $additionalSignedHeaders,
+        string $isoTimestamp,
+        string $canonicalQueryString = '',
+    ): array {
         $region = $this->config->region;
         $service = 'sns';
         $host = $this->host();
@@ -320,6 +323,22 @@ class SnsSmsConnector extends BaseConnector implements SmsConnectorInterface
     private function host(): string
     {
         return "sns.{$this->config->region}.amazonaws.com";
+    }
+
+    /**
+     * The region is interpolated into the host the signed request (and any
+     * session token) is sent to, so a value like `x.evil.test/` must never
+     * reach the wire. Same shape check as botocore `validate_region_name`.
+     */
+    private function assertRegion(): void
+    {
+        if (preg_match('/^(?![0-9]+$)(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$/D', $this->config->region) !== 1) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'SNS: region must be an AWS region name such as us-east-1',
+                statusCode: 400,
+            );
+        }
     }
 
     /**

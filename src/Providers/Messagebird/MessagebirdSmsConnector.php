@@ -34,6 +34,7 @@ final class MessagebirdSmsConnector extends BaseConnector implements SmsConnecto
     private const ENDPOINT = 'https://rest.messagebird.com/messages';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly MessagebirdConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

@@ -11,14 +11,19 @@ use Thinwrap\Notifications\DTO\Email\EmailSendInput;
  * MailerSend-specific narrowed input. Captures fields beyond the ≥90% baseline
  * per the ≥90%-of-providers baseline rule.
  *
- * At v1.0 the below-baseline fields (`templateId`, `personalization`,
- * `variables`, `sendAt`, `precedenceBulk`, `settings`) are NOT auto-applied by
- * the connector; supply them via `_passthrough.body` (MailerSend wire keys).
- * Promotion to first-class mapping is deferred to v1.1.
+ * Wire mapping: `templateId` → `template_id`, `personalization` →
+ * `personalization`, `sendAt` (unix seconds) → `send_at`, `precedenceBulk` →
+ * `precedence_bulk`, `settings` (`trackClicks` / `trackOpens` /
+ * `trackContent`, or MailerSend's own snake_case keys; boolean values only)
+ * → `settings` (`track_clicks` / `track_opens` / `track_content`).
+ * `_passthrough.body` still wins on conflict.
  *
- * @phpstan-type Personalization list<array{email:string,data:array<string,mixed>}>
+ * Each `personalization` entry is `['email' => string, 'data' => array]`; an
+ * entry without `data` is rejected before sending.
+ *
+ * @phpstan-type Personalization list<array<string,mixed>>
  * @phpstan-type Variables list<array{email:string,substitutions:list<array{var:string,value:string}>}>
- * @phpstan-type Settings array{trackClicks?:bool,trackOpens?:bool,trackContent?:bool}
+ * @phpstan-type Settings array<string,mixed>
  */
 final readonly class MailersendNarrowedInput extends EmailSendInput
 {
@@ -48,6 +53,11 @@ final readonly class MailersendNarrowedInput extends EmailSendInput
         ?array $_passthrough = null,
         public ?string $templateId = null,
         public ?array $personalization = null,
+        /**
+         * @deprecated MailerSend removed simple personalization (`variables`)
+         *             from its email API; this field is never sent. Use
+         *             `personalization` instead.
+         */
         public ?array $variables = null,
         public ?int $sendAt = null,
         public ?bool $precedenceBulk = null,

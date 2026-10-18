@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Thinwrap\Notifications\Contract;
 
 /**
- * Optional caller-supplied hook for amortizing JWT signing + OAuth token
- * exchange (consumed by the FCM and APNs connectors).
+ * Caller-supplied hook for reusing the JWT / OAuth token across sends
+ * (consumed by the FCM and APNs connectors).
  *
- * The wrapper holds no state and is stateless by default; FCM/APNs sign fresh
- * on every send unless a consumer plugs in a `TokenCacheHook` implementation.
+ * The wrapper holds no state; FCM/APNs sign fresh on every send unless a
+ * consumer plugs in a `TokenCacheHook` implementation. For APNs that is
+ * required in production: APNs rejects a new provider token more than once
+ * every 20 minutes (`429 TooManyProviderTokenUpdates`).
  * Cache entry shape:
  * `['token' => string, 'expiresAt' => int (UNIX epoch SECONDS)]`.
  *

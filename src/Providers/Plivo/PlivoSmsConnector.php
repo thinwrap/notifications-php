@@ -34,6 +34,7 @@ final class PlivoSmsConnector extends BaseConnector implements SmsConnectorInter
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly PlivoConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -106,7 +107,9 @@ final class PlivoSmsConnector extends BaseConnector implements SmsConnectorInter
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
-        $url = "https://api.plivo.com/v1/Account/{$this->config->authId}/Message/";
+        // Escaped so a stray `/`, `?` or `#` in the auth id cannot re-point the
+        // credentialed request at another resource.
+        $url = 'https://api.plivo.com/v1/Account/' . rawurlencode($this->config->authId) . '/Message/';
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
 

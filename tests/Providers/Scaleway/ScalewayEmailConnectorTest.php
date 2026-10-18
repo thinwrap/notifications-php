@@ -58,7 +58,7 @@ final class ScalewayEmailConnectorTest extends TestCase
     {
         $this->mockClient->addResponse($this->successResponse());
         $connector = new ScalewayEmailConnector(
-            new ScalewayConfig(secretKey: 'scw-secret', projectId: 'proj', from: 'sender@example.com', region: ScalewayRegion::PlWaw),
+            new ScalewayConfig(secretKey: 'scw-secret', projectId: 'proj', from: 'sender@example.com', region: ScalewayRegion::FrPar),
             $this->mockClient,
             $this->factory,
             $this->factory,
@@ -66,7 +66,23 @@ final class ScalewayEmailConnectorTest extends TestCase
         $connector->send($this->basicInput());
 
         $request = $this->mockClient->getRequests()[0];
-        $this->assertStringContainsString('/regions/pl-waw/emails', (string) $request->getUri());
+        $this->assertStringContainsString('/regions/fr-par/emails', (string) $request->getUri());
+    }
+
+    /** Any enum region is passed through; which regions serve TEM is Scaleway's call. */
+    public function testOtherRegionsArePassedThrough(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = new ScalewayEmailConnector(
+            new ScalewayConfig(secretKey: 'scw-secret', projectId: 'proj', from: 'sender@example.com', region: ScalewayRegion::PlWaw),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        );
+
+        $connector->send($this->basicInput());
+
+        $this->assertStringContainsString('/regions/pl-waw/emails', (string) $this->mockClient->getRequests()[0]->getUri());
     }
 
     public function testBodyShapeFromToProjectIdAndSenderName(): void

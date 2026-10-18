@@ -30,7 +30,7 @@ $result = $email->send(new EmailSendInput(from: 'sender@example.com', to: 'recip
 | `projectId` | `string` | yes | Written as `project_id` on every send |
 | `from` | `string` | yes | Default sender email |
 | `senderName` | `?string` | no | Composed into `from.name` |
-| `region` | `?ScalewayRegion` | no | Default `FrPar`; interpolated into the endpoint **path** |
+| `region` | `?ScalewayRegion` | no | Default `FrPar` (currently the only Transactional Email region); interpolated into the endpoint **path** |
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
@@ -43,7 +43,7 @@ Generate an API key (Access key + Secret key) under Scaleway IAM. Only the
 
 `POST https://api.scaleway.com/transactional-email/v1alpha1/regions/{region}/emails`
 
-The region is part of the URL path (not a host swap); it defaults to `fr-par` (valid `fr-par`, `nl-ams`, `pl-waw`).
+The region is part of the URL path (not a host swap); it defaults to `fr-par`. Scaleway currently serves Transactional Email only from `fr-par`; `NlAms` / `PlWaw` are sent as given, and Scaleway answers with an error if the region does not offer it.
 
 ## Narrowed input augmentations
 

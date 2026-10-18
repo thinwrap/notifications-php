@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Resend;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Resend connector configuration.
  *
@@ -14,7 +16,10 @@ namespace Thinwrap\Notifications\Providers\Resend;
  */
 final readonly class ResendConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $apiKey,
         public string $from,
         public ?string $senderName = null,

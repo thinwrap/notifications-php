@@ -78,8 +78,9 @@ final class TelnyxSmsConnectorTest extends TestCase
 
     public function testInvalidToCodeMapsRecipient(): void
     {
+        // Telnyx messaging error 40310 "Invalid 'to' address"; codes are numeric strings.
         $this->mockClient->addResponse(
-            $this->jsonResponse(400, ['errors' => [['code' => 'to_number_invalid', 'detail' => 'bad number']]])
+            $this->jsonResponse(400, ['errors' => [['code' => '40310', 'title' => "Invalid 'to' address", 'detail' => 'bad number']]])
         );
         try {
             $this->buildConnector()->send($this->basicInput());
@@ -90,17 +91,39 @@ final class TelnyxSmsConnectorTest extends TestCase
         }
     }
 
-    public function test422MapsInvalidRecipient(): void
+    /**
+     * Telnyx api-errors (`{"errors":[{"code":"10001","title":…,"detail":…,"source":{}}]}`)
+     * and messaging error codes (403xx synchronous; help-centre titles).
+     *
+     * @return iterable<string,array{int,array<string,mixed>,ProviderCode}>
+     */
+    public static function vendorCodes(): iterable
     {
-        // Only a recipient-specific vendor code escalates to InvalidRecipient.
-        $this->mockClient->addResponse(
-            $this->jsonResponse(422, ['errors' => [['code' => 'to_number_invalid', 'detail' => 'invalid destination']]])
-        );
+        yield '40300 Blocked due to STOP message' => [422, ['code' => '40300'], ProviderCode::InvalidRecipient];
+        yield '40305 Invalid from address' => [422, ['code' => '40305'], ProviderCode::InvalidRequest];
+        yield '40311 Invalid messaging profile secret' => [422, ['code' => '40311'], ProviderCode::AuthFailed];
+        yield '40314 Messaging disabled on account' => [422, ['code' => '40314'], ProviderCode::InvalidRequest];
+        yield '40318 Message queue full' => [422, ['code' => '40318'], ProviderCode::RateLimited];
+        yield '10009 Authentication failed' => [422, ['code' => '10009'], ProviderCode::AuthFailed];
+        yield '10011 Too many requests' => [400, ['code' => '10011'], ProviderCode::RateLimited];
+        yield '20100 Insufficient Funds' => [400, ['code' => '20100'], ProviderCode::InvalidRequest];
+        yield '10002 Invalid phone number at /to' => [422, ['code' => '10002', 'source' => ['pointer' => '/to']], ProviderCode::InvalidRecipient];
+        yield '10002 Invalid phone number elsewhere' => [422, ['code' => '10002', 'source' => ['pointer' => '/from']], ProviderCode::InvalidRequest];
+        yield 'integer code is read too' => [422, ['code' => 40310], ProviderCode::InvalidRecipient];
+    }
+
+    /**
+     * @param array<string,mixed> $error
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('vendorCodes')]
+    public function testVendorCodeMapping(int $status, array $error, ProviderCode $expected): void
+    {
+        $this->mockClient->addResponse($this->jsonResponse($status, ['errors' => [$error]]));
         try {
             $this->buildConnector()->send($this->basicInput());
             $this->fail('Expected ConnectorError');
         } catch (ConnectorError $err) {
-            $this->assertSame(ProviderCode::InvalidRecipient, $err->providerCode);
+            $this->assertSame($expected, $err->providerCode);
         }
     }
 

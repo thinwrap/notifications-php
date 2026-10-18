@@ -43,6 +43,7 @@ final class ExpoPushConnector extends BaseConnector implements PushConnectorInte
     ];
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly ExpoConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Messagebird;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * MessageBird (now branded "Bird") SMS connector configuration.
  *
@@ -15,7 +17,10 @@ namespace Thinwrap\Notifications\Providers\Messagebird;
  */
 final readonly class MessagebirdConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $accessKey,
         public ?string $from = null,
     ) {}

@@ -10,11 +10,13 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamFactoryInterface;
 use Thinwrap\Notifications\Base\BaseConnector;
 use Thinwrap\Notifications\Contract\EmailConnectorInterface;
+use Thinwrap\Notifications\DTO\Email\EmailAttachment;
 use Thinwrap\Notifications\DTO\Email\EmailSendInput;
 use Thinwrap\Notifications\DTO\Email\EmailSendResult;
 use Thinwrap\Notifications\DTO\Email\EmailStatus;
 use Thinwrap\Notifications\Enum\ProviderCode;
 use Thinwrap\Notifications\Exception\ConnectorError;
+use Thinwrap\Notifications\Util\Mailbox;
 use Thinwrap\Notifications\Util\Passthrough;
 
 /**
@@ -74,6 +76,7 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly SesConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -85,6 +88,7 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
 
     public function send(EmailSendInput $input): EmailSendResult
     {
+        $this->assertRegion();
         $connectorBody = $this->buildSesV2Body($input);
         $connectorHeaders = ['Content-Type' => 'application/json'];
 
@@ -160,52 +164,69 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
     }
 
     /**
+     * SES v2 `SendEmail` rejects these as custom headers on Simple content:
+     * "the following headers are disallowed as custom headers: BCC, CC,
+     * Content-Disposition, Content-Type, Date, From, Message-ID, MIME-Version,
+     * Reply-To, Return-Path, Subject, To" (SES developer guide, header-fields).
+     *
+     * @var array<string,true>
+     */
+    private const DISALLOWED_CUSTOM_HEADERS = [
+        'bcc' => true,
+        'cc' => true,
+        'content-disposition' => true,
+        'content-type' => true,
+        'date' => true,
+        'from' => true,
+        'message-id' => true,
+        'mime-version' => true,
+        'reply-to' => true,
+        'return-path' => true,
+        'subject' => true,
+        'to' => true,
+    ];
+
+    /** sesv2 `MessageHeaderList`: "Can contain no more than 15 headers in one message." */
+    private const MAX_CUSTOM_HEADERS = 15;
+
+    /**
      * Build the SES v2 SendEmail JSON body from `EmailSendInput`. PascalCase
      * keys are written directly in the array literal per the casing-locality rule.
      * `null` values are stripped after Passthrough merge (SES rejects nulls in
      * nested structures with `ValidationException`).
      *
-     * Attachments or custom `headers` force the raw-MIME path (`Content.Raw`,
-     * a documented design decision, ported from TS `buildMimeMessageFromInput`); otherwise
-     * the simpler `Content.Simple` structure is used. `tags` map to
-     * `EmailTags: [{Name, Value}]` and the sender falls back to `config.from`
-     * with optional `config.senderName` display-name wrapping.
+     * Everything goes through `Content.Simple`: its `Headers` and `Attachments`
+     * members (inline images via `ContentId` + `ContentDisposition: INLINE`)
+     * cover custom headers and attachments, so SES builds and encodes the MIME
+     * itself. `tags` map to `EmailTags: [{Name, Value}]`.
      *
      * @return array<string,mixed>
      */
     private function buildSesV2Body(EmailSendInput $input): array
     {
-        $fromEmailAddress = $this->resolveFrom($input);
-
-        $destination = [
-            'ToAddresses' => [$input->to],
-            'CcAddresses' => $input->cc,
-            'BccAddresses' => $input->bcc,
+        $simple = [
+            'Subject' => ['Data' => $input->subject, 'Charset' => 'UTF-8'],
+            'Body' => [
+                'Html' => $input->html !== null ? ['Data' => $input->html, 'Charset' => 'UTF-8'] : null,
+                'Text' => $input->text !== null ? ['Data' => $input->text, 'Charset' => 'UTF-8'] : null,
+            ],
         ];
-
-        $hasAttachments = $input->attachments !== null && $input->attachments !== [];
-        $hasHeaders = $input->headers !== null && $input->headers !== [];
-
-        if ($hasAttachments || $hasHeaders) {
-            $mime = $this->buildMimeMessage($input, $fromEmailAddress);
-            $content = ['Raw' => ['Data' => base64_encode($mime)]];
-        } else {
-            $content = [
-                'Simple' => [
-                    'Subject' => ['Data' => $input->subject, 'Charset' => 'UTF-8'],
-                    'Body' => [
-                        'Html' => $input->html !== null ? ['Data' => $input->html, 'Charset' => 'UTF-8'] : null,
-                        'Text' => $input->text !== null ? ['Data' => $input->text, 'Charset' => 'UTF-8'] : null,
-                    ],
-                ],
-            ];
+        if ($input->headers !== null && $input->headers !== []) {
+            $simple['Headers'] = $this->buildHeaders($input->headers);
+        }
+        if ($input->attachments !== null && $input->attachments !== []) {
+            $simple['Attachments'] = $this->buildAttachments($input->attachments);
         }
 
         $body = [
-            'FromEmailAddress' => $fromEmailAddress,
-            'Destination' => $destination,
-            'ReplyToAddresses' => $input->replyTo !== null ? [$input->replyTo] : null,
-            'Content' => $content,
+            'FromEmailAddress' => $this->resolveFrom($input),
+            'Destination' => [
+                'ToAddresses' => [$this->mailbox($input->to)],
+                'CcAddresses' => $input->cc !== null ? array_map($this->mailbox(...), $input->cc) : null,
+                'BccAddresses' => $input->bcc !== null ? array_map($this->mailbox(...), $input->bcc) : null,
+            ],
+            'ReplyToAddresses' => $input->replyTo !== null ? [$this->mailbox($input->replyTo)] : null,
+            'Content' => ['Simple' => $simple],
         ];
 
         $emailTags = $this->liftTags($input->tags);
@@ -217,23 +238,35 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
     }
 
     /**
-     * Resolve the sender: per-message `from` wins, else `config.from`; wrap with
-     * `config.senderName` as `Name <addr>` when present.
+     * Resolve the sender: per-message `from` wins, else `config.from`, with
+     * `config.senderName` as the display name.
      */
     private function resolveFrom(EmailSendInput $input): string
     {
         $address = $input->from !== '' ? $input->from : (string) $this->config->from;
-        if ($this->config->senderName !== null && $this->config->senderName !== '') {
-            return $this->config->senderName . ' <' . $address . '>';
-        }
 
-        return $address;
+        return $this->mailbox($address, $this->config->senderName);
+    }
+
+    /**
+     * Format one address for SES: the display name is quoted or encoded as
+     * SES requires for a "friendly from" name; the address itself is sent as
+     * given.
+     */
+    private function mailbox(string $address, ?string $name = null): string
+    {
+        return Mailbox::format($name, $address);
     }
 
     /**
      * SES expects `EmailTags: [{Name, Value}]`. The base `EmailSendInput.tags`
      * is `list<string>`; each bare tag becomes `{Name: tag, Value: tag}`
      * (a documented design decision, mirrors TS `liftSesTags`).
+     *
+     * sesv2 `MessageTag` Name and Value: "It can only contain ASCII letters
+     * (a–z, A–Z), numbers (0–9), underscores (_), or dashes (-). It can contain
+     * no more than 256 characters." — checked here so the caller learns which
+     * tag is wrong instead of getting a bare 400.
      *
      * @param list<string>|null $tags
      *
@@ -245,160 +278,106 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
             return [];
         }
 
-        return array_map(static fn(string $tag): array => ['Name' => $tag, 'Value' => $tag], $tags);
+        $out = [];
+        foreach ($tags as $tag) {
+            if (preg_match('/^[A-Za-z0-9_-]{1,256}$/D', $tag) !== 1) {
+                throw new ConnectorError(
+                    providerCode: ProviderCode::InvalidRequest,
+                    providerMessage: "SES: tag '{$tag}' may only contain ASCII letters, digits, '_' or '-' (max 256)",
+                    statusCode: 400,
+                );
+            }
+            $out[] = ['Name' => $tag, 'Value' => $tag];
+        }
+
+        return $out;
     }
 
     /**
-     * Build a raw multipart MIME message for SES `Content.Raw.Data` from the
-     * base `EmailSendInput` (a documented design decision, ported from TS
-     * `buildMimeMessageFromInput`). Header values are CRLF-stripped to prevent
-     * header injection; non-ASCII From/Subject are RFC 2047 base64 encoded.
+     * Map baseline `headers` onto `Content.Simple.Headers`, enforcing the
+     * sesv2 `MessageHeader` rules before sending: Name "any printable ASCII
+     * character (33 - 126) except for colon (:)", at most 126 characters; Value
+     * "any printable ASCII character", at most 995; name plus value at most
+     * 996; at most 15 headers. A non-ASCII value is sent as RFC 2047
+     * encoded-words, the MIME way to carry it in printable ASCII; the limits
+     * apply to the encoded form. A header SES sets itself (see
+     * DISALLOWED_CUSTOM_HEADERS) is rejected — use the matching input field.
+     * Values are never echoed in the error: a custom header can carry a token.
+     *
+     * @param array<string,string> $headers
+     *
+     * @return list<array{Name:string,Value:string}>
      */
-    private function buildMimeMessage(EmailSendInput $input, string $from): string
+    private function buildHeaders(array $headers): array
     {
-        $boundary = '----=_Part_' . bin2hex(random_bytes(8));
-        $altBoundary = '----=_Alt_' . bin2hex(random_bytes(8));
+        if (count($headers) > self::MAX_CUSTOM_HEADERS) {
+            throw $this->invalidHeader('SES accepts at most 15 custom headers');
+        }
 
-        $lines = [];
-        $lines[] = 'From: ' . self::encodeFromHeaderValue($from);
-        $lines[] = 'To: ' . self::stripCrlf($input->to);
-        if ($input->cc !== null && $input->cc !== []) {
-            $lines[] = 'Cc: ' . implode(', ', array_map(self::stripCrlf(...), $input->cc));
-        }
-        if ($input->bcc !== null && $input->bcc !== []) {
-            $lines[] = 'Bcc: ' . implode(', ', array_map(self::stripCrlf(...), $input->bcc));
-        }
-        if ($input->replyTo !== null) {
-            $lines[] = 'Reply-To: ' . self::stripCrlf($input->replyTo);
-        }
-        // Caller-supplied custom headers (CRLF-stripped name + value).
-        if ($input->headers !== null) {
-            foreach ($input->headers as $name => $value) {
-                $lines[] = self::stripCrlf((string) $name) . ': ' . self::stripCrlf($value);
+        $out = [];
+        foreach ($headers as $name => $value) {
+            $name = (string) $name;
+            if (preg_match('/^[!-9;-~]{1,126}$/D', $name) !== 1) {
+                throw $this->invalidHeader('SES: header names must be 1-126 printable ASCII characters without a colon');
             }
+            if (isset(self::DISALLOWED_CUSTOM_HEADERS[strtolower($name)])) {
+                throw $this->invalidHeader("SES sets the '{$name}' header itself; use the matching input field instead");
+            }
+            if (!Mailbox::isAscii($value)) {
+                $value = Mailbox::encodedWords($value);
+            }
+            if ($value === '' || preg_match('/^[ -~]{1,995}$/D', $value) !== 1) {
+                throw $this->invalidHeader("SES: header '{$name}' value must be 1-995 printable ASCII characters");
+            }
+            if (strlen($name) + strlen($value) > 996) {
+                throw $this->invalidHeader("SES: header '{$name}' name plus value exceeds 996 characters");
+            }
+            $out[] = ['Name' => $name, 'Value' => $value];
         }
-        $lines[] = 'Subject: ' . self::encodeHeaderValue($input->subject);
-        $lines[] = 'MIME-Version: 1.0';
-        $lines[] = 'Content-Type: multipart/mixed; boundary="' . $boundary . '"';
-        $lines[] = '';
 
-        $lines[] = '--' . $boundary;
-        $lines[] = 'Content-Type: multipart/alternative; boundary="' . $altBoundary . '"';
-        $lines[] = '';
+        return $out;
+    }
 
-        // Body parts are base64-encoded (not 8bit): SES honors SMTP's 7-bit
-        // limit and mangles 8-bit content if it rewrites the message (open/click
-        // tracking); an unfolded 8bit line also violates the 998-octet line cap
-        // for minified HTML. base64 is the RFC-/AWS-sanctioned 7-bit-safe encoding.
-        if ($input->text !== null && $input->text !== '') {
-            $lines[] = '--' . $altBoundary;
-            $lines[] = 'Content-Type: text/plain; charset=UTF-8';
-            $lines[] = 'Content-Transfer-Encoding: base64';
-            $lines[] = '';
-            $lines[] = rtrim(chunk_split(base64_encode($input->text), 76, "\r\n"), "\r\n");
-            $lines[] = '';
-        }
-        if ($input->html !== null && $input->html !== '') {
-            $lines[] = '--' . $altBoundary;
-            $lines[] = 'Content-Type: text/html; charset=UTF-8';
-            $lines[] = 'Content-Transfer-Encoding: base64';
-            $lines[] = '';
-            $lines[] = rtrim(chunk_split(base64_encode($input->html), 76, "\r\n"), "\r\n");
-            $lines[] = '';
-        }
-        $lines[] = '--' . $altBoundary . '--';
-        $lines[] = '';
+    private function invalidHeader(string $message): ConnectorError
+    {
+        return new ConnectorError(
+            providerCode: ProviderCode::InvalidRequest,
+            providerMessage: $message,
+            statusCode: 400,
+        );
+    }
 
-        foreach ($input->attachments ?? [] as $attachment) {
-            $contentType = ($attachment->contentType ?? '') !== ''
-                ? (string) $attachment->contentType
-                : 'application/octet-stream';
-            $filename = self::quoteMimeFilename($attachment->filename);
-            // Fold the base64 stream into 76-char lines (RFC 2045 §6.8) so no
-            // MIME line exceeds RFC 5322's 998-octet limit; an unwrapped blob
-            // >~748 bytes would make SES forward non-conformant MIME. The
-            // trailing CRLF chunk_split() appends is trimmed so the payload
-            // slots cleanly between the blank line and the next boundary.
-            $encoded = rtrim(
-                chunk_split(base64_encode($this->normalizeAttachmentContent($attachment)), 76, "\r\n"),
-                "\r\n",
-            );
-
-            $lines[] = '--' . $boundary;
-            $lines[] = 'Content-Type: ' . self::stripCrlf($contentType) . '; name=' . $filename;
-            $lines[] = 'Content-Transfer-Encoding: base64';
-            if ($attachment->contentId !== null) {
-                $lines[] = 'Content-ID: <' . self::stripCrlf($attachment->contentId) . '>';
-                $lines[] = 'Content-Disposition: inline; filename=' . $filename;
+    /**
+     * sesv2 `Attachment`: `RawContent` ("needs to be base64-encoded if you are
+     * accessing Amazon SES directly through the HTTPS interface") and
+     * `FileName` are required; `ContentId` is "used for referencing
+     * attachments with INLINE disposition in HTML content".
+     *
+     * @param list<EmailAttachment> $attachments
+     *
+     * @return list<array<string,string>>
+     */
+    private function buildAttachments(array $attachments): array
+    {
+        $out = [];
+        foreach ($attachments as $attachment) {
+            $entry = [
+                'FileName' => $attachment->filename,
+                'RawContent' => base64_encode($this->normalizeAttachmentContent($attachment)),
+            ];
+            if ($attachment->contentType !== null && $attachment->contentType !== '') {
+                $entry['ContentType'] = $attachment->contentType;
+            }
+            if ($attachment->contentId !== null && $attachment->contentId !== '') {
+                $entry['ContentId'] = $attachment->contentId;
+                $entry['ContentDisposition'] = 'INLINE';
             } else {
-                $lines[] = 'Content-Disposition: attachment; filename=' . $filename;
+                $entry['ContentDisposition'] = 'ATTACHMENT';
             }
-            $lines[] = '';
-            $lines[] = $encoded;
-            $lines[] = '';
+            $out[] = $entry;
         }
 
-        $lines[] = '--' . $boundary . '--';
-        $lines[] = '';
-
-        return implode("\r\n", $lines);
-    }
-
-    /**
-     * Strip CR/LF from a header value to prevent header injection. MIME header
-     * field bodies cannot contain bare CR/LF.
-     */
-    private static function stripCrlf(string $value): string
-    {
-        return trim((string) preg_replace('/[\r\n]+/', ' ', $value));
-    }
-
-    /**
-     * RFC 2047 base64 encoded-word for non-ASCII header values; ASCII passes
-     * through. Always CRLF-stripped (defence in depth).
-     */
-    private static function encodeHeaderValue(string $value): string
-    {
-        $stripped = self::stripCrlf($value);
-        if (preg_match('/[^\x00-\x7F]/', $stripped) !== 1) {
-            return $stripped;
-        }
-
-        return '=?UTF-8?B?' . base64_encode($stripped) . '?=';
-    }
-
-    /**
-     * Encode a `From` header value. RFC 2047 forbids encoded-words inside an
-     * addr-spec, so a whole `Name <addr>` must never be base64'd as one word —
-     * that swallows the routable `<addr>`. When the value is a `Name <addr>`
-     * phrase we RFC 2047 encode ONLY the display-name (and only when it carries
-     * non-ASCII), leaving `<addr>` bare; a pure-ASCII name stays a normal phrase.
-     * A bare address (no display-name) passes through CRLF-stripped, unencoded.
-     */
-    private static function encodeFromHeaderValue(string $from): string
-    {
-        $stripped = self::stripCrlf($from);
-        if (preg_match('/^(.*)<([^>]*)>$/', $stripped, $m) === 1) {
-            $name = trim($m[1]);
-            $addr = trim($m[2]);
-            if ($name === '') {
-                return '<' . $addr . '>';
-            }
-
-            return self::encodeHeaderValue($name) . ' <' . $addr . '>';
-        }
-
-        return $stripped;
-    }
-
-    /**
-     * Quote a MIME filename per RFC 2183; embedded `"`/`\` are backslash-escaped.
-     */
-    private static function quoteMimeFilename(string $name): string
-    {
-        $stripped = self::stripCrlf($name);
-
-        return '"' . preg_replace('/(["\\\\])/', '\\\\$1', $stripped) . '"';
+        return $out;
     }
 
     /**
@@ -438,8 +417,14 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
      *
      * @return array<string,string>
      */
-    private function signRequest(string $serializedJsonBody, array $additionalSignedHeaders, string $isoTimestamp, string $canonicalQuery = ''): array
-    {
+    private function signRequest(
+        #[\SensitiveParameter]
+        string $serializedJsonBody,
+        #[\SensitiveParameter]
+        array $additionalSignedHeaders,
+        string $isoTimestamp,
+        string $canonicalQuery = '',
+    ): array {
         $region = $this->config->region;
         $service = 'ses';
         $host = $this->host();
@@ -552,26 +537,27 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
     }
 
     /**
+     * The region is interpolated into the host the signed request (and any
+     * session token) is sent to, so a value like `x.evil.test/` must never
+     * reach the wire. Same shape check as botocore `validate_region_name`.
+     */
+    private function assertRegion(): void
+    {
+        if (preg_match('/^(?![0-9]+$)(?!-)[a-zA-Z0-9-]{1,63}(?<!-)$/D', $this->config->region) !== 1) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'SES: region must be an AWS region name such as us-east-1',
+                statusCode: 400,
+            );
+        }
+    }
+
+    /**
      * @param array<string,mixed>|null $body
      */
     protected function mapVendorError(int $statusCode, ?array $body, ResponseInterface $response): ConnectorError
     {
-        $type = '';
-        if (is_array($body)) {
-            $candidates = [$body['__type'] ?? null, $body['type'] ?? null, $body['Code'] ?? null];
-            foreach ($candidates as $c) {
-                if (is_string($c) && $c !== '') {
-                    $type = $c;
-                    break;
-                }
-            }
-        }
-        // SES sometimes formats `__type` as `com.amazonaws.services.ses#FooException`.
-        $code = '';
-        if ($type !== '') {
-            $parts = explode('#', $type);
-            $code = (string) end($parts);
-        }
+        $code = self::errorCode($response, $body);
 
         $vendorMessage = 'SES HTTP ' . $statusCode;
         if (is_array($body)) {
@@ -604,13 +590,47 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
         );
     }
 
+    /**
+     * The restJson1 error code, resolved the way the AWS SDKs do (botocore
+     * `RestJSONParser._inject_error_code`, aws-sdk-js-v3
+     * `loadRestJsonErrorCode`): the `x-amzn-ErrorType` header first, then body
+     * `code`/`Code`, then `__type`. Six SendEmail errors share HTTP 400, so the
+     * code is the only way to tell them apart. The header looks like
+     * `MessageRejected:http://internal.amazon.com/...` and `__type` like
+     * `com.amazonaws...#MessageRejected`, so the value is cut at `,` and `:` and
+     * the part after the last `#` is kept.
+     *
+     * @param array<string,mixed>|null $body
+     */
+    private static function errorCode(ResponseInterface $response, ?array $body): string
+    {
+        $candidates = [$response->getHeaderLine('x-amzn-ErrorType')];
+        if (is_array($body)) {
+            array_push($candidates, $body['code'] ?? null, $body['Code'] ?? null, $body['__type'] ?? null, $body['type'] ?? null);
+        }
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate) || $candidate === '') {
+                continue;
+            }
+            $code = explode(',', $candidate, 2)[0];
+            $code = explode(':', $code, 2)[0];
+            $hash = strrpos($code, '#');
+            $code = trim($hash === false ? $code : substr($code, $hash + 1));
+            if ($code !== '') {
+                return $code;
+            }
+        }
+
+        return '';
+    }
+
     private function classifyError(int $statusCode, string $code): ProviderCode
     {
         // Body-layer error-code map takes precedence over HTTP-status defaults.
         switch ($code) {
-            case 'MessageRejected':
             case 'InvalidEmailAddress':
                 return ProviderCode::InvalidRecipient;
+            case 'MessageRejected': // SendEmail: "The message can't be sent because it contains invalid content."
             case 'MailFromDomainNotVerified':
             case 'MailFromDomainNotVerifiedException':
             case 'FromEmailAddressNotVerified':
@@ -620,6 +640,7 @@ class SesEmailConnector extends BaseConnector implements EmailConnectorInterface
             case 'InvalidParameterValue':
             case 'BadRequestException':
                 return ProviderCode::InvalidRequest;
+            case 'SendingPausedException': // SendEmail: "currently paused"; the v1 AccountSendingPaused* names stay as aliases
             case 'AccountSendingPaused':
             case 'AccountSendingPausedException':
             case 'AccountSuspended':

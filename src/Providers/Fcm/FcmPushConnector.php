@@ -49,6 +49,7 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
     private const TOKEN_EXPIRY_SKEW_SECONDS = 60;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly FcmConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -76,11 +77,13 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
         );
 
         /** @var array<string,mixed> $mergedBody */
-        $mergedBody = $merged['body'];
+        $mergedBody = self::resolveTarget($merged['body']);
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
-        $url = "https://fcm.googleapis.com/v1/projects/{$this->config->projectId}/messages:send";
+        // Escaped so a stray `/`, `?` or `#` in the project id cannot re-point
+        // the credentialed request at another resource.
+        $url = 'https://fcm.googleapis.com/v1/projects/' . rawurlencode($this->config->projectId) . '/messages:send';
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
 
@@ -190,10 +193,22 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
         $body = $this->decodeJson($response);
 
         if ($status < 200 || $status >= 300 || !is_array($body) || !isset($body['access_token'], $body['expires_in'])) {
+            // A rejected grant (`invalid_grant`, `invalid_client` on 400/401) is
+            // a credential problem; Google throttling or an outage is not, and
+            // retrying it can succeed.
+            $code = match (true) {
+                $status === 429 => ProviderCode::RateLimited,
+                $status >= 500 => ProviderCode::ProviderUnavailable,
+                default => ProviderCode::AuthFailed,
+            };
             throw new ConnectorError(
-                providerCode: ProviderCode::AuthFailed,
+                providerCode: $code,
                 providerMessage: 'FCM OAuth token exchange failed: HTTP ' . $status,
-                cause: ['raw' => $body],
+                cause: [
+                    'raw' => $body,
+                    'retryAfter' => $response->getHeaderLine('Retry-After') ?: null,
+                    'retryAfterSeconds' => is_numeric($response->getHeaderLine('Retry-After')) ? (int) $response->getHeaderLine('Retry-After') : null,
+                ],
                 statusCode: $status,
             );
         }
@@ -210,6 +225,52 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
         }
 
         return [$accessToken, (int) $expiresIn];
+    }
+
+    /**
+     * FCM v1 `Message` targets are a oneof — "The following is a list of
+     * mutually exclusive fields. At most one of the fields will be set":
+     * `token`, `fid`, `topic`, `condition`. The deep merge can add a
+     * `_passthrough` topic/condition/fid but never remove the connector's
+     * `token`, so a non-token target drops it here; an empty `token` goes too.
+     *
+     * @param array<string,mixed> $body
+     *
+     * @return array<string,mixed>
+     */
+    private static function resolveTarget(array $body): array
+    {
+        if (!isset($body['message']) || !is_array($body['message'])) {
+            return $body;
+        }
+        $message = $body['message'];
+        foreach (['topic', 'condition', 'fid'] as $target) {
+            if (isset($message[$target]) && $message[$target] !== '') {
+                unset($message['token']);
+                break;
+            }
+        }
+        if (array_key_exists('token', $message) && ($message['token'] === '' || $message['token'] === null)) {
+            unset($message['token']);
+        }
+        // Exactly one target is required, so a message with none is a request
+        // error FCM would answer with a 400.
+        $hasTarget = false;
+        foreach (['token', 'topic', 'condition', 'fid'] as $target) {
+            if (isset($message[$target]) && $message[$target] !== '') {
+                $hasTarget = true;
+            }
+        }
+        if (!$hasTarget) {
+            throw new ConnectorError(
+                providerCode: ProviderCode::InvalidRequest,
+                providerMessage: 'FCM message needs a target: a device token in `to`, or a topic, condition or fid',
+                statusCode: 400,
+            );
+        }
+        $body['message'] = $message;
+
+        return $body;
     }
 
     /**
@@ -312,7 +373,7 @@ final class FcmPushConnector extends BaseConnector implements PushConnectorInter
         if ($statusCode === 429) {
             return ProviderCode::RateLimited;
         }
-        if ($statusCode === 500 || $statusCode === 503) {
+        if ($statusCode >= 500) {
             return ProviderCode::ProviderUnavailable;
         }
         if ($statusCode === 400) {

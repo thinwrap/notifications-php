@@ -61,10 +61,12 @@ final class Sms implements SmsConnectorInterface
      */
     public function __construct(
         ?NotificationProviderId $providerId,
+        #[\SensitiveParameter]
         VonageConfig|TwilioConfig|PlivoConfig|SnsConfig|SinchConfig|TelnyxConfig|InfobipConfig|MessagebirdConfig|TextmagicConfig|D7networksConfig|null $config = null,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
+        #[\SensitiveParameter]
         ?SmsConnectorInterface $connector = null,
     ) {
         $this->providerId = $providerId;
@@ -126,7 +128,7 @@ final class Sms implements SmsConnectorInterface
      * `new Sms(connector)` overload; lets callers inject a fully-wired (or test
      * double) connector without going through the config-keyed match.
      */
-    public static function fromConnector(SmsConnectorInterface $connector): self
+    public static function fromConnector(#[\SensitiveParameter] SmsConnectorInterface $connector): self
     {
         return new self(null, connector: $connector);
     }

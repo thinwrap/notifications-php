@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Textmagic;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Textmagic SMS connector configuration.
  *
@@ -13,8 +15,11 @@ namespace Thinwrap\Notifications\Providers\Textmagic;
  */
 final readonly class TextmagicConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
         public string $username,
+        #[\SensitiveParameter]
         public string $apiKey,
         public ?string $from = null,
     ) {}

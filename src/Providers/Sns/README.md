@@ -17,7 +17,9 @@ $result = $sms->send(new SmsSendInput(to: '+15551234567', body: 'Hello, world!')
 
 ## Configuration
 
-`SnsConfig(accessKeyId: string, secretAccessKey: string, region: string)`
+`SnsConfig(region: string, accessKeyId: string, secretAccessKey: string, sessionToken: ?string = null)`
+
+`region` must be an AWS region name; it becomes the host the signed request goes to, so anything else is `InvalidRequest` before sending.
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Mailtrap;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Mailtrap connector configuration.
  *
@@ -19,7 +21,10 @@ namespace Thinwrap\Notifications\Providers\Mailtrap;
  */
 final readonly class MailtrapConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $apiToken,
         public MailtrapMode $mode,
         public ?string $inboxId = null,

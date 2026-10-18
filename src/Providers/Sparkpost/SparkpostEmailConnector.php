@@ -42,6 +42,7 @@ final class SparkpostEmailConnector extends BaseConnector implements EmailConnec
     private const TRANSMISSIONS_PATH = '/api/v1/transmissions';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly SparkpostConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -227,12 +228,17 @@ final class SparkpostEmailConnector extends BaseConnector implements EmailConnec
         $regular = [];
         $inline = [];
         foreach ($attachments as $a) {
-            $encoded = base64_encode($this->normalizeAttachmentContent($a));
-            $item = ['name' => $a->filename, 'data' => $encoded];
-            if ($a->contentType !== null && $a->contentType !== '') {
-                $item['type'] = $a->contentType;
-            }
-            if ($a->contentId !== null) {
+            // SparkPost transmissions: `type` is required on both lists ("The
+            // MIME type … will apply as-is to the `Content-Type` header"), and an
+            // inline image's `name` "will be inserted into the `Content-ID`
+            // header" — so it must be the content id, not the filename.
+            $item = [
+                'name' => $a->filename,
+                'type' => $a->contentType !== null && $a->contentType !== '' ? $a->contentType : 'application/octet-stream',
+                'data' => base64_encode($this->normalizeAttachmentContent($a)),
+            ];
+            if ($a->contentId !== null && $a->contentId !== '') {
+                $item['name'] = $a->contentId;
                 $inline[] = $item;
             } else {
                 $regular[] = $item;
@@ -282,10 +288,12 @@ final class SparkpostEmailConnector extends BaseConnector implements EmailConnec
 
     private function classifyError(int $statusCode, string $message, ?string $code): ProviderCode
     {
-        if ($statusCode === 401 || $statusCode === 403 || $statusCode === 420) {
+        if ($statusCode === 401 || $statusCode === 403) {
             return ProviderCode::AuthFailed;
         }
-        if ($statusCode === 429) {
+        // 420 "Exceed Sending Limit — You exceeded your daily, monthly, or
+        // sandbox sending limit.": a quota, not a credential problem.
+        if ($statusCode === 429 || $statusCode === 420) {
             return ProviderCode::RateLimited;
         }
         if ($statusCode >= 500) {

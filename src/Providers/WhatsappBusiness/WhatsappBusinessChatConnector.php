@@ -30,6 +30,7 @@ final class WhatsappBusinessChatConnector extends BaseConnector implements ChatC
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly WhatsappBusinessConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -110,7 +111,9 @@ final class WhatsappBusinessChatConnector extends BaseConnector implements ChatC
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
-        $url = "https://graph.facebook.com/{$this->config->graphApiVersion}/{$this->config->phoneNumberId}/messages";
+        // Config values placed in the path are escaped so a stray `/`, `?` or
+        // `#` cannot re-point the credentialed request at another resource.
+        $url = 'https://graph.facebook.com/' . rawurlencode($this->config->graphApiVersion) . '/' . rawurlencode($this->config->phoneNumberId) . '/messages';
         if ($merged['query'] !== []) {
             $url .= '?' . http_build_query($merged['query']);
         }
@@ -169,37 +172,64 @@ final class WhatsappBusinessChatConnector extends BaseConnector implements ChatC
         );
     }
 
+    /**
+     * WhatsApp Cloud API `error.code`, per Meta's error-code reference; the
+     * HTTP status applies only when the code is not listed.
+     *
+     * @var array<int,ProviderCode>
+     */
+    private const ERROR_CODES = [
+        0 => ProviderCode::AuthFailed,              // "We were unable to authenticate the app user"
+        3 => ProviderCode::AuthFailed,              // capability / permission
+        10 => ProviderCode::AuthFailed,             // "Permission is either not granted or has been removed"
+        190 => ProviderCode::AuthFailed,            // "Your access token has expired"
+        368 => ProviderCode::AuthFailed,            // temporarily blocked for policy violations
+        131005 => ProviderCode::AuthFailed,         // access denied
+        131031 => ProviderCode::AuthFailed,         // business account locked / restricted
+        4 => ProviderCode::RateLimited,             // app-level rate limit
+        80007 => ProviderCode::RateLimited,         // "WhatsApp Business Account has reached its rate limit"
+        130429 => ProviderCode::RateLimited,        // "Rate limit hit" (Cloud API throughput)
+        131048 => ProviderCode::RateLimited,        // spam rate limit hit
+        131056 => ProviderCode::RateLimited,        // "Too many messages sent from the sender phone number to the same recipient"
+        131021 => ProviderCode::InvalidRecipient,   // sender and recipient are the same number
+        131026 => ProviderCode::InvalidRecipient,   // message undeliverable to this recipient
+        100 => ProviderCode::InvalidRequest,        // invalid parameter
+        131008 => ProviderCode::InvalidRequest,     // "The request is missing a required parameter."
+        131009 => ProviderCode::InvalidRequest,     // "One or more parameter values are invalid."
+        131042 => ProviderCode::InvalidRequest,     // business eligibility / payment issue
+        131045 => ProviderCode::InvalidRequest,     // phone-number registration error
+        131047 => ProviderCode::InvalidRequest,     // "More than 24 hours have passed since the recipient last replied" — send a template
+        131051 => ProviderCode::InvalidRequest,     // unsupported message type
+        132000 => ProviderCode::InvalidRequest,     // template parameter count mismatch
+        132001 => ProviderCode::InvalidRequest,     // template does not exist
+        132012 => ProviderCode::InvalidRequest,     // template parameter format mismatch
+        133010 => ProviderCode::InvalidRequest,     // "Phone number not registered on the WhatsApp Business Platform." (the sender)
+        1 => ProviderCode::ProviderUnavailable,     // unknown API error
+        2 => ProviderCode::ProviderUnavailable,     // API service
+        131000 => ProviderCode::ProviderUnavailable, // "Something went wrong"
+        131016 => ProviderCode::ProviderUnavailable, // "A service is temporarily unavailable."
+        131057 => ProviderCode::ProviderUnavailable, // business account in maintenance mode
+    ];
+
     private function classifyError(int $statusCode, ?int $errorCode): ProviderCode
     {
-        if ($errorCode === 190) {
-            return ProviderCode::AuthFailed;
-        }
-        if ($statusCode === 401) {
-            return ProviderCode::AuthFailed;
-        }
-        if ($errorCode === 131008 || $errorCode === 131026 || $errorCode === 131047) {
-            return ProviderCode::InvalidRecipient;
-        }
-        if ($errorCode === 80007 || $errorCode === 80004 || $errorCode === 4) {
-            return ProviderCode::RateLimited;
-        }
-        if ($statusCode === 429) {
-            return ProviderCode::RateLimited;
-        }
-        if ($errorCode === 131051 || $errorCode === 131056) {
-            return ProviderCode::InvalidRequest;
-        }
-        if ($statusCode === 400) {
-            return ProviderCode::InvalidRequest;
-        }
-        if ($errorCode === 1 || $errorCode === 2) {
-            return ProviderCode::ProviderUnavailable;
-        }
-        if ($statusCode >= 500) {
-            return ProviderCode::ProviderUnavailable;
+        if ($errorCode !== null) {
+            if (isset(self::ERROR_CODES[$errorCode])) {
+                return self::ERROR_CODES[$errorCode];
+            }
+            // 200-299: "Permission is either not granted or has been removed".
+            if ($errorCode >= 200 && $errorCode <= 299) {
+                return ProviderCode::AuthFailed;
+            }
         }
 
-        return ProviderCode::Unknown;
+        return match (true) {
+            $statusCode === 401 || $statusCode === 403 => ProviderCode::AuthFailed,
+            $statusCode === 429 => ProviderCode::RateLimited,
+            $statusCode >= 500 => ProviderCode::ProviderUnavailable,
+            $statusCode === 400 => ProviderCode::InvalidRequest,
+            default => ProviderCode::Unknown,
+        };
     }
 
     /**

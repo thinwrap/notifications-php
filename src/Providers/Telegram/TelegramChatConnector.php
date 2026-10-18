@@ -34,6 +34,7 @@ final class TelegramChatConnector extends BaseConnector implements ChatConnector
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly TelegramConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -95,7 +96,10 @@ final class TelegramChatConnector extends BaseConnector implements ChatConnector
         /** @var array<string,string> $mergedHeaders */
         $mergedHeaders = $merged['headers'];
 
-        $url = "https://api.telegram.org/bot{$this->config->botToken}/sendMessage";
+        // The token is escaped so a stray `/`, `?` or `#` cannot re-point the
+        // request; its `<bot id>:<secret>` colon stays literal, as RFC 3986
+        // allows in a path segment and as the Bot API documents the URL.
+        $url = 'https://api.telegram.org/bot' . str_replace('%3A', ':', rawurlencode($this->config->botToken)) . '/sendMessage';
 
         $response = $this->sendPostJson($url, $mergedBody, $mergedHeaders);
         $status = $response->getStatusCode();
@@ -168,10 +172,22 @@ final class TelegramChatConnector extends BaseConnector implements ChatConnector
         );
     }
 
+    /**
+     * Per the Bot API server (tdlib/telegram-bot-api): a bad token is
+     * `401 Unauthorized: invalid token specified`, and a malformed
+     * `/bot<token>/` path is 404 (python-telegram-bot maps 404 to InvalidToken;
+     * the method here is fixed, so 404 can only mean the token). Every 403 is
+     * about the chat — "bot was blocked by the user", "user is deactivated",
+     * "bot was kicked from the group chat", "bot is not a member" — never the
+     * credential.
+     */
     private function classifyError(int $statusCode, ?string $description): ProviderCode
     {
-        if ($statusCode === 401 || $statusCode === 403) {
+        if ($statusCode === 401 || $statusCode === 404) {
             return ProviderCode::AuthFailed;
+        }
+        if ($statusCode === 403) {
+            return ProviderCode::InvalidRecipient;
         }
         if ($statusCode === 429) {
             return ProviderCode::RateLimited;

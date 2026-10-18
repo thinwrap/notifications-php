@@ -83,7 +83,105 @@ final class WonderpushPushConnectorTest extends TestCase
         $decoded = json_decode((string) $request->getBody(), true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(['a', 'b'], $decoded['targetUserIds']);
         $this->assertSame(['seg1'], $decoded['targetSegmentIds']);
-        $this->assertSame(5, $decoded['notification']['badge']);
+        $this->assertSame(5, $decoded['notification']['alert']['ios']['badge']);
+        $this->assertArrayNotHasKey('badge', $decoded['notification']);
+    }
+
+    public function testNotificationShapeFollowsWonderpushNotificationObject(): void
+    {
+        // docs.wonderpush.com/reference/notification: alert.text / alert.title,
+        // alert.ios.{sound,badge,subtitle}, alert.android.sound, push.custom.
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"id":"x"}'))
+        );
+
+        $this->buildConnector()->send(new WonderpushPushSendInput(
+            to: 'u',
+            title: 'T',
+            body: 'B',
+            data: ['orderId' => '42'],
+            badge: 3,
+            sound: 'chime.caf',
+            subtitle: 'Sub',
+        ));
+
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame([
+            'alert' => [
+                'title'   => 'T',
+                'text'    => 'B',
+                'ios'     => ['subtitle' => 'Sub', 'sound' => 'chime.caf', 'badge' => 3],
+                'android' => ['sound' => 'chime.caf'],
+            ],
+            'push' => ['custom' => ['orderId' => '42']],
+        ], $decoded['notification']);
+    }
+
+    public function testBasePushDataGoesUnderPushCustom(): void
+    {
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"id":"x"}'))
+        );
+
+        $this->buildConnector()->send(new PushSendInput(to: 'u', title: 'T', body: 'B', data: ['k' => 'v']));
+
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(['custom' => ['k' => 'v']], $decoded['notification']['push']);
+        $this->assertArrayNotHasKey('custom', $decoded['notification']);
+    }
+
+    public function testNotificationOverrideDeepMergesIosAndPushKeys(): void
+    {
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"id":"x"}'))
+        );
+
+        $this->buildConnector()->send(new WonderpushPushSendInput(
+            to: 'u',
+            title: 'T',
+            body: 'B',
+            data: ['k' => 'v'],
+            badge: 1,
+            sound: 'default',
+            notification: [
+                'alert' => [
+                    'ios'     => ['threadId' => 'thread-1', 'badge' => 9],
+                    'android' => ['channel' => 'orders'],
+                ],
+                'push' => ['android' => ['priority' => 'high']],
+            ],
+        ));
+
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $notification = $decoded['notification'];
+        $this->assertSame('T', $notification['alert']['title']);
+        $this->assertSame('B', $notification['alert']['text']);
+        $this->assertSame(['sound' => 'default', 'badge' => 9, 'threadId' => 'thread-1'], $notification['alert']['ios']);
+        $this->assertSame(['sound' => 'default', 'channel' => 'orders'], $notification['alert']['android']);
+        $this->assertSame(['custom' => ['k' => 'v'], 'android' => ['priority' => 'high']], $notification['push']);
+    }
+
+    public function testPassthroughNotificationDeepMergesOverBuiltBlock(): void
+    {
+        $this->mockClient->addResponse(
+            (new Response(200))->withBody($this->factory->createStream('{"id":"x"}'))
+        );
+
+        $this->buildConnector()->send(new WonderpushPushSendInput(
+            to: 'u',
+            title: 'T',
+            body: 'B',
+            sound: 'default',
+            _passthrough: ['body' => ['notification' => ['alert' => ['ios' => ['category' => 'reply']]]]],
+        ));
+
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(['sound' => 'default', 'category' => 'reply'], $decoded['notification']['alert']['ios']);
+        $this->assertSame('B', $decoded['notification']['alert']['text']);
     }
 
     private function buildConnector(): WonderpushPushConnector

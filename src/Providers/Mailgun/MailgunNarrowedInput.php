@@ -11,10 +11,13 @@ use Thinwrap\Notifications\DTO\Email\EmailSendInput;
  * Mailgun-specific narrowed input. Captures Mailgun-only form options below
  * the ≥90% baseline per the ≥90%-of-providers baseline rule.
  *
- * At v1.0 these fields are NOT auto-mapped by the connector; supply them via
- * `_passthrough.body` using Mailgun's `o:` / `v:` / `t:` wire keys (e.g.
- * `o:tracking`, `v:my-var`, `t:text`). Promotion to first-class mapping is
- * deferred to v1.1.
+ * Wire mapping: `oTracking` → `o:tracking`, `oTrackingClicks` →
+ * `o:tracking-clicks`, `oTrackingOpens` → `o:tracking-opens`, `oDkim` →
+ * `o:dkim` (each `yes`/`no`); `oTestmode: true` → `o:testmode=yes`;
+ * `oDeliverytime` (RFC 2822 date) → `o:deliverytime`; each `vCustomVars`
+ * entry → `v:<name>`; `template` → `template`; `tVariables` → `t:variables`
+ * (JSON); `tVersion` → `t:version`; `tText` (`'yes'`) → `t:text`.
+ * `_passthrough.body` still wins on conflict.
  */
 final readonly class MailgunNarrowedInput extends EmailSendInput
 {
@@ -25,8 +28,10 @@ final readonly class MailgunNarrowedInput extends EmailSendInput
      * @param array<string,string>|null $headers
      * @param list<string>|null $tags
      * @param array{body?:array<string,mixed>,headers?:array<string,string>,query?:array<string,string>}|null $_passthrough
-     * @param array<string,string>|null $vCustomVars
-     * @param array<string,string>|null $tVariables
+     * @param array<string,mixed>|null $vCustomVars  A non-string value is sent as JSON.
+     * @param array<string,mixed>|null $tVariables   Any JSON dictionary.
+     * @param bool|string|null $oTracking        true, false, or `'htmlonly'` (rewrite links in the HTML part only).
+     * @param bool|string|null $oTrackingClicks  true, false, or `'htmlonly'`.
      */
     public function __construct(
         string $from,
@@ -41,8 +46,8 @@ final readonly class MailgunNarrowedInput extends EmailSendInput
         ?array $headers = null,
         ?array $tags = null,
         ?array $_passthrough = null,
-        public ?bool $oTracking = null,
-        public ?bool $oTrackingClicks = null,
+        public bool|string|null $oTracking = null,
+        public bool|string|null $oTrackingClicks = null,
         public ?bool $oTrackingOpens = null,
         public ?string $oDeliverytime = null,
         public ?bool $oTestmode = null,

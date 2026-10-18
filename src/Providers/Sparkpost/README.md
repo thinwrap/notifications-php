@@ -33,7 +33,7 @@ Region-derived, JSON body:
 
 ## Narrowed input augmentations
 
-Standard Email input maps into the Transmissions shape: `from` (+ `config.senderName`) → `content.from` (`{email, name?}`); `subject` → `content.subject`; `html`/`text` → `content.html`/`.text`; `replyTo` → `content.reply_to` (a **string**); `headers` → `content.headers`; `attachments` → `content.attachments` (`{name, data(base64), type?}`) or `content.inline_images` when `contentId` is set; `tags` → `metadata.tags`. On success `status` is `Queued` and `providerMessageId` comes from `results.id`.
+Standard Email input maps into the Transmissions shape: `from` (+ `config.senderName`) → `content.from` (`{email, name?}`); `subject` → `content.subject`; `html`/`text` → `content.html`/`.text`; `replyTo` → `content.reply_to` (a **string**); `headers` → `content.headers`; `attachments` → `content.attachments` (`{name: filename, type, data(base64)}`) or `content.inline_images` (`{name: contentId, type, data}` — SparkPost puts `name` in the `Content-ID` header) when `contentId` is set; `type` is required by SparkPost, so a missing `contentType` is sent as `application/octet-stream`; `tags` → `metadata.tags`. On success `status` is `Queued` and `providerMessageId` comes from `results.id`.
 
 **CC/BCC outlier:** SparkPost has no `cc`/`bcc` fields — `to` seeds `recipients[]`, and each `cc`/`bcc` is appended to `recipients[]` with `address.header_to` set to the primary `to`; CC visibility comes from `content.headers.CC` (comma-joined), BCC stays invisible. There is no narrowed input class; any further SparkPost-specific snake_case fields go via `_passthrough.body` (e.g. `campaign_id`, `substitution_data`, `options`, `metadata`).
 
@@ -41,8 +41,8 @@ Standard Email input maps into the Transmissions shape: `from` (+ `config.sender
 
 | Vendor HTTP | Vendor signal | `ProviderCode` |
 |---|---|---|
-| 401 / 403 / 420 | (any) | `AuthFailed` |
-| 429 | (any) | `RateLimited` |
+| 401 / 403 | (any) | `AuthFailed` |
+| 429 / 420 (Exceed Sending Limit: daily, monthly or sandbox quota) | (any) | `RateLimited` |
 | 5xx | (any) | `ProviderUnavailable` |
 | 413 / 422 | (any) | `InvalidRequest` |
 | 400 | first-error `message` matches `recipient` / `address`, or `code` `1300` / `1301` / `1303` | `InvalidRecipient` |

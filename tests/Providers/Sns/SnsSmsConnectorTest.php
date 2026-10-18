@@ -168,6 +168,32 @@ final class SnsSmsConnectorTest extends TestCase
         $this->assertStringContainsString('x-amz-security-token', $request->getHeaderLine('Authorization'));
     }
 
+    /**
+     * botocore `validate_region_name` shape: the region is interpolated into
+     * `sns.{region}.amazonaws.com`, the host that receives the SigV4 signature
+     * and any session token.
+     */
+    public function testRegionThatIsNotAHostLabelIsRejectedBeforeSending(): void
+    {
+        foreach (['x.evil.test/', "us-east-1\n"] as $region) {
+            $connector = new SnsSmsConnector(
+                new SnsConfig(region: $region, accessKeyId: 'AKIA', secretAccessKey: 's', sessionToken: 'sts-token'),
+                $this->mockClient,
+                $this->factory,
+                $this->factory,
+            );
+
+            try {
+                $connector->send($this->basicInput());
+                $this->fail('Expected ConnectorError');
+            } catch (ConnectorError $e) {
+                $this->assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+                $this->assertStringContainsString('region', (string) $e->providerMessage);
+            }
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
     public function testActionAndPhoneNumberInBody(): void
     {
         $this->mockClient->addResponse($this->successResponse());

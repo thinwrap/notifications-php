@@ -252,4 +252,138 @@ final class BaseConnectorTest extends TestCase
 
         self::assertSame(500, $response->getStatusCode());
     }
+
+    /**
+     * Guzzle psr7 `MessageTrait::assertValue()` throws
+     * `sprintf('"%s" is not valid header value.', $value)` and Nyholm throws a
+     * similar `\InvalidArgumentException`, but Nyholm lets a lone trailing LF
+     * through. The realistic trigger is an API key read from the environment
+     * with its newline, so the raw exception would carry the key. It must
+     * surface as a ConnectorError that carries neither the value nor the PSR-7
+     * message, and never reach the client — for LF, CRLF and CR alike.
+     *
+     * @return iterable<string, array{\Psr\Http\Message\RequestFactoryInterface&\Psr\Http\Message\StreamFactoryInterface, string, string}>
+     */
+    public static function invalidHeaderCases(): iterable
+    {
+        foreach (['nyholm' => new Psr17Factory(), 'guzzle' => new \GuzzleHttp\Psr7\HttpFactory()] as $label => $factory) {
+            foreach (['get', 'json', 'raw', 'form', 'multipart'] as $helper) {
+                foreach (['LF' => "\n", 'CRLF' => "\r\n", 'CR' => "\r", 'NUL' => "\0"] as $eol => $suffix) {
+                    yield "{$label}/{$helper}/{$eol}" => [$factory, $helper, $suffix];
+                }
+            }
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidHeaderCases')]
+    public function testInvalidHeaderValueNeverLeaksTheCredential(
+        \Psr\Http\Message\RequestFactoryInterface&\Psr\Http\Message\StreamFactoryInterface $factory,
+        string $helper,
+        string $suffix,
+    ): void {
+        $secret = 'sk_live_SECRET_VALUE';
+        $client = new MockClient();
+        $connector = new TestableConnector($client, $factory, $factory, ['Authorization' => "Bearer {$secret}{$suffix}"]);
+
+        try {
+            match ($helper) {
+                'get' => $connector->callSendGet('https://example.test/api'),
+                'json' => $connector->callSendPostJson('https://example.test/api', ['a' => 1]),
+                'raw' => $connector->callSendPostJsonRaw('https://example.test/api', '{}'),
+                'form' => $connector->callSendPostForm('https://example.test/api', ['a' => 'b']),
+                'multipart' => $connector->callSendPostMultipart('https://example.test/api', [['name' => 'a', 'contents' => 'b']]),
+            };
+            self::fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            self::assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+            self::assertStringNotContainsString($secret, (string) $e->providerMessage);
+            self::assertStringNotContainsString($secret, $e->getMessage());
+            self::assertStringNotContainsString($secret, (string) json_encode($e->cause));
+            self::assertNull($e->getPrevious());
+        }
+        self::assertCount(0, $client->getRequests());
+    }
+
+    /**
+     * PSR-7 `withHeader()` accepts scalar values, and `_passthrough.headers`
+     * can carry them; they must be sent as strings, not raise a TypeError.
+     */
+    public function testScalarHeaderValuesAreSentAsStrings(): void
+    {
+        $client = new MockClient();
+        $client->addResponse(new Response(200));
+
+        /** @var array<string,string> $headers */
+        $headers = ['X-Int' => 5, 'X-Float' => 1.5, 'X-Bool' => true];
+        $this->makeConnector($client)->callSendGet('https://example.test/api', $headers);
+
+        $request = $client->getRequests()[0];
+        self::assertSame('5', $request->getHeaderLine('X-Int'));
+        self::assertSame('1.5', $request->getHeaderLine('X-Float'));
+        self::assertSame('true', $request->getHeaderLine('X-Bool'));
+    }
+
+    public function testNonScalarHeaderValueIsInvalidRequestNamingOnlyTheHeader(): void
+    {
+        $client = new MockClient();
+
+        /** @var array<string,string> $headers */
+        $headers = ['X-List' => ['secret-a', 'secret-b']];
+        try {
+            $this->makeConnector($client)->callSendGet('https://example.test/api', $headers);
+            self::fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            self::assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+            self::assertStringContainsString('X-List', (string) $e->providerMessage);
+            self::assertStringNotContainsString('secret', (string) $e->providerMessage);
+        }
+        self::assertCount(0, $client->getRequests());
+    }
+
+    /** php-http/discovery throws its own NotFoundException when no PSR-17 factory is installed. */
+    public function testMissingPsr17FactoryIsAConnectorError(): void
+    {
+        $connector = new class (new MockClient()) extends \Thinwrap\Notifications\Base\BaseConnector {
+            protected function mapVendorError(int $statusCode, ?array $body, ResponseInterface $response): ConnectorError
+            {
+                return new ConnectorError(ProviderCode::Unknown);
+            }
+
+            public function get(): ResponseInterface
+            {
+                return $this->sendGet('https://example.test/');
+            }
+        };
+
+        $strategies = \Http\Discovery\ClassDiscovery::getStrategies();
+        \Http\Discovery\ClassDiscovery::setStrategies([]);
+        \Http\Discovery\ClassDiscovery::clearCache();
+        try {
+            $connector->get();
+            self::fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            self::assertSame(ProviderCode::ProviderUnavailable, $e->providerCode);
+        } finally {
+            \Http\Discovery\ClassDiscovery::setStrategies(is_array($strategies) ? $strategies : iterator_to_array($strategies));
+            \Http\Discovery\ClassDiscovery::clearCache();
+        }
+    }
+
+    /** Guzzle `Uri::__construct`: `"Unable to parse URI: $uri"` — the URI can hold a token. */
+    public function testUnparseableUrlNeverLeaksTheUrl(): void
+    {
+        $client = new MockClient();
+        $factory = new \GuzzleHttp\Psr7\HttpFactory();
+        $connector = new TestableConnector($client, $factory, $factory);
+
+        try {
+            $connector->callSendGet('https://:bot123:SECRET@/');
+            self::fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            self::assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+            self::assertStringNotContainsString('SECRET', $e->getMessage());
+            self::assertStringNotContainsString('SECRET', (string) json_encode($e->cause));
+        }
+        self::assertCount(0, $client->getRequests());
+    }
 }

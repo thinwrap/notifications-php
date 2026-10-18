@@ -50,10 +50,12 @@ final class Push implements PushConnectorInterface
      */
     public function __construct(
         ?NotificationProviderId $providerId,
+        #[\SensitiveParameter]
         FcmConfig|ExpoConfig|ApnsConfig|OneSignalConfig|PusherBeamsConfig|WonderpushConfig|null $config = null,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
+        #[\SensitiveParameter]
         ?PushConnectorInterface $connector = null,
     ) {
         $this->providerId = $providerId;
@@ -102,7 +104,7 @@ final class Push implements PushConnectorInterface
      * Build the facade from a pre-constructed push connector. Mirrors TS's
      * `new Push(connector)` overload.
      */
-    public static function fromConnector(PushConnectorInterface $connector): self
+    public static function fromConnector(#[\SensitiveParameter] PushConnectorInterface $connector): self
     {
         return new self(null, connector: $connector);
     }

@@ -142,6 +142,73 @@ final class ResendEmailConnectorTest extends TestCase
         $this->assertSame('Acme <sender@example.com>', $decoded['from']);
     }
 
+    /** Postmark/Resend/Mailgun take one `Name <addr>` string; RFC 5322 requires specials to be quoted. */
+    public function testSenderNameWithSpecialsIsQuoted(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = new ResendEmailConnector(
+            new ResendConfig(apiKey: 'k', from: 'no-reply@acme.io', senderName: 'Acme, Inc.'),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        );
+
+        $connector->send($this->basicInput());
+
+        $this->assertSame('"Acme, Inc." <sender@example.com>', $this->sentBody()['from']);
+    }
+
+    /**
+     * Resend attachments: "You can embed images using the content id parameter
+     * for the attachment. To show the image, you need to include the ID in the
+     * `src` attribute of the `img` tag (e.g., `<img src="cid:...">`)".
+     */
+    public function testInlineAttachmentCarriesContentId(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        $connector = $this->buildConnector();
+
+        $connector->send(new EmailSendInput(
+            from: 'sender@example.com',
+            to: 'recipient@example.com',
+            subject: 'Test',
+            html: '<img src="cid:logo">',
+            attachments: [
+                new \Thinwrap\Notifications\DTO\Email\EmailAttachment(filename: 'logo.png', content: 'PNG', contentType: 'image/png', contentId: 'logo'),
+                new \Thinwrap\Notifications\DTO\Email\EmailAttachment(filename: 'a.txt', content: 'x'),
+            ],
+        ));
+
+        $attachments = $this->sentBody()['attachments'];
+        $this->assertSame('logo', $attachments[0]['content_id']);
+        $this->assertArrayNotHasKey('content_id', $attachments[1]);
+    }
+
+    /** Resend tags: "It can only contain ASCII letters (a–z, A–Z), numbers (0–9), underscores (_), or dashes (-)." */
+    public function testTagOutsideTheResendCharsetIsRejectedBeforeSending(): void
+    {
+        $connector = $this->buildConnector();
+
+        try {
+            $connector->send(new EmailSendInput(from: 'sender@example.com', to: 'r@example.com', subject: 'S', text: 'B', tags: ['summer:sale']));
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            $this->assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function sentBody(): array
+    {
+        /** @var array<string,mixed> $decoded */
+        $decoded = json_decode((string) $this->mockClient->getRequests()[0]->getBody(), true, 512, JSON_THROW_ON_ERROR);
+
+        return $decoded;
+    }
+
     public function testIdempotencyKeyHeader(): void
     {
         $this->mockClient->addResponse($this->successResponse());

@@ -63,10 +63,12 @@ final class Chat implements ChatConnectorInterface
      */
     public function __construct(
         ?NotificationProviderId $providerId,
+        #[\SensitiveParameter]
         TelegramConfig|SlackConfig|WhatsappBusinessConfig|DiscordConfig|MsteamsConfig|GoogleChatConfig|MattermostConfig|RocketChatConfig|LineConfig|null $config = null,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
         ?StreamFactoryInterface $streamFactory = null,
+        #[\SensitiveParameter]
         ?ChatConnectorInterface $connector = null,
     ) {
         $this->providerId = $providerId;
@@ -124,7 +126,7 @@ final class Chat implements ChatConnectorInterface
      * Build the facade from a pre-constructed chat connector. Mirrors TS's
      * `new Chat(connector)` overload.
      */
-    public static function fromConnector(ChatConnectorInterface $connector): self
+    public static function fromConnector(#[\SensitiveParameter] ChatConnectorInterface $connector): self
     {
         return new self(null, connector: $connector);
     }

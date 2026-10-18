@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Mailgun;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Mailgun connector configuration.
  *
@@ -13,7 +15,10 @@ namespace Thinwrap\Notifications\Providers\Mailgun;
  */
 final readonly class MailgunConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $apiKey,
         public string $domain,
         public ?string $from = null,

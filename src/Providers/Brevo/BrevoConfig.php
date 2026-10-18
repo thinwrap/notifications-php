@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Brevo;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Brevo connector configuration. Mirrors the TS connector
  * (`notifications-ts/src/providers/brevo/brevo.config.ts`).
@@ -14,7 +16,10 @@ namespace Thinwrap\Notifications\Providers\Brevo;
  */
 final readonly class BrevoConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $apiKey,
         public string $from,
         public ?string $senderName = null,

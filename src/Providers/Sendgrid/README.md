@@ -31,7 +31,7 @@ API key from SendGrid dashboard. Sent as `Authorization: Bearer <key>`.
 
 ## Narrowed input augmentations
 
-The standard email input applies as-is: `from`, `to`, `cc`, `bcc`, `replyTo`, `subject`, `text`, `html`, `attachments`, `headers`, and `tags` (mapped to SendGrid `categories`). SendGrid template sends and other v3-API-specific fields go through `_passthrough.body` using snake_case wire keys (e.g. `template_id`, `personalizations[].dynamic_template_data`, `mail_settings`, `tracking_settings`).
+The standard email input applies as-is: `from`, `to`, `cc`, `bcc`, `replyTo`, `subject`, `text`, `html`, `attachments`, `headers`, and `tags` (mapped to SendGrid `categories`). `SendgridNarrowedInput` adds typed SendGrid fields, each sent under its v3 wire name: `templateId` → `template_id`, `dynamicTemplateData` → `personalizations[0].dynamic_template_data`, `sendAt` (unix seconds, at most 72 h ahead) → `send_at`, `batchId` → `batch_id`, `asm` (`['group_id' => int, 'groups_to_display' => [...]]`) → `asm`, `mailSettings` → `mail_settings`, `trackingSettings` → `tracking_settings`, `ipPoolName` → `ip_pool_name`, and `categories` → `categories` (merged with `tags`, de-duplicated; more than 10, or one longer than 255 characters, is `InvalidRequest` before sending, since SendGrid would reject the whole send). On a template send (`template_id`), an empty `subject` is left out so the dynamic template's own subject applies; a non-empty one is sent. The settings arrays are sent as given, so use SendGrid's snake_case keys (`['click_tracking' => ['enable' => false]]`). Any other v3 field goes through `_passthrough.body` using snake_case wire keys, and `_passthrough.body` wins on conflict.
 
 ## Error mapping
 

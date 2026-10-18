@@ -20,8 +20,9 @@ use Thinwrap\Notifications\Util\Passthrough;
 /**
  * MS Teams Incoming Webhook chat connector. Mirrors TS `MsTeamsChatConnector`.
  *
- * Webhook-URL-as-auth: no Authorization header. MS Teams returns plain
- * text `"1"` on success; `providerMessageId` is always `null`.
+ * Webhook-URL-as-auth: no Authorization header. A Workflows webhook answers
+ * 202 with an empty body; a legacy Office 365 Connector answers 200 with the
+ * plain text `"1"`. `providerMessageId` is always `null`.
  *
  * **casing-locality outlier:** Teams expects a fixed envelope wrapping the Adaptive Card.
  */
@@ -30,6 +31,7 @@ final class MsteamsChatConnector extends BaseConnector implements ChatConnectorI
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly MsteamsConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -96,15 +98,22 @@ final class MsteamsChatConnector extends BaseConnector implements ChatConnectorI
 
         $rawText = (string) $response->getBody();
 
-        // On failure (including throttling) Teams STILL returns HTTP 200, but
-        // with an error string in the body, e.g. "...Teams endpoint returned
-        // HTTP error 429 with ContextId...". Only the literal "1" means success.
-        if (trim($rawText) !== '1') {
-            $effectiveStatus = 502;
+        // A Workflows webhook ("When a Teams webhook request is received") is a
+        // Logic Apps Request trigger, which answers 202 ACCEPTED with no body as
+        // soon as the run is queued — that IS the success signal.
+        if ($status !== 202) {
+            // Legacy Office 365 Connectors report failures (including throttling)
+            // as HTTP 200 with an error string in the body, e.g. "...Teams
+            // endpoint returned HTTP error 429 with ContextId...".
             if (preg_match('/HTTP error (\d{3})/i', $rawText, $m) === 1) {
-                $effectiveStatus = (int) $m[1];
+                throw $this->mapVendorError((int) $m[1], ['_text' => $rawText], $response);
             }
-            throw $this->mapVendorError($effectiveStatus, ['_text' => $rawText], $response);
+            // A legacy connector host answers the literal "1" on success, so any
+            // other body from one is a failure; Workflows hosts carry no such
+            // contract and their 2xx stands on its own.
+            if (self::isLegacyConnectorHost($url) && trim($rawText) !== '1') {
+                throw $this->mapVendorError(502, ['_text' => $rawText], $response);
+            }
         }
 
         return new ChatSendResult(
@@ -113,6 +122,22 @@ final class MsteamsChatConnector extends BaseConnector implements ChatConnectorI
             providerMessageId: null,
             raw: $rawText,
         );
+    }
+
+    /**
+     * Office 365 Connector webhooks live on `{tenant}.webhook.office.com` (and
+     * the older `outlook.office.com`); Workflows URLs are on Logic Apps /
+     * Power Platform hosts.
+     */
+    private static function isLegacyConnectorHost(string $url): bool
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host)) {
+            return false;
+        }
+        $host = strtolower($host);
+
+        return $host === 'outlook.office.com' || str_ends_with($host, '.webhook.office.com');
     }
 
     /**

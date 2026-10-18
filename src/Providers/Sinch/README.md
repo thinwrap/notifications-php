@@ -17,7 +17,9 @@ $result = $sms->send(new SmsSendInput(to: '+15551234567', body: 'Hello, world!')
 
 ## Configuration
 
-`SinchConfig(apiToken: string, servicePlanId: string, region: ?SinchRegion = null)`
+`SinchConfig(servicePlanId: string, apiToken: string, from: ?string = null, region: ?SinchRegion = null)`
+
+Pass the arguments by name: `servicePlanId` goes into the URL path and `apiToken` into the `Authorization` header, so swapping them positionally would put the token in the URL (and in access logs).
 
 Bring-your-own PSR-18 client + PSR-17 factories via the facade constructor (`$client`, `$requestFactory`, `$streamFactory`); auto-discovered via `php-http/discovery` when omitted.
 
@@ -27,7 +29,7 @@ API token from Sinch dashboard. Sent as `Authorization: Bearer <token>`. Regiona
 
 ## Endpoint
 
-`https://{region}.sms.api.sinch.com/xms/v1/{servicePlanId}/batches` — JSON body. Regional clusters: `us` (default), `eu`.
+`https://{region}.sms.api.sinch.com/xms/v1/{servicePlanId}/batches` — JSON body. Regional clusters: `us` (default), `eu`, `au`, `br`, `ca` — use the region your service plan was created in.
 
 ## Narrowed input augmentations
 

@@ -31,7 +31,7 @@ Generate an API key in Resend dashboard. Sent as `Authorization: Bearer <key>`.
 
 ## Narrowed input augmentations
 
-The wire body uses Resend's lowercase shape: `from` (composed as `Name <addr>` when `config.senderName` is set) → `from`; `to` → `to` (one-element array); `subject` → `subject`; `html`/`text` → `html`/`text`; `cc`/`bcc` → `cc`/`bcc`; `replyTo` → `reply_to` (one-element array); `headers` → `headers`; `tags` → `tags` as `[{name: "tag", value: <t>}]`; `attachments` → `attachments` (`{filename, content` (base64)`, content_type?}`). On success `status` is `Sent` and `providerMessageId` comes from the response `id`.
+The wire body uses Resend's lowercase shape: `from` (composed as `Name <addr>` when `config.senderName` is set — quoted when the name holds RFC 5322 specials, RFC 2047 encoded-words when it is non-ASCII) → `from`; `to` → `to` (one-element array); `subject` → `subject`; `html`/`text` → `html`/`text`; `cc`/`bcc` → `cc`/`bcc`; `replyTo` → `reply_to` (one-element array); `headers` → `headers`; `tags` → `tags` as `[{name: "tag", value: <t>}]` (Resend allows only ASCII letters, digits, `_` and `-`, max 256, so any other tag is `InvalidRequest` before sending); `attachments` → `attachments` (`{filename, content` (base64)`, content_type?, content_id?}` — `contentId` becomes `content_id`, so `<img src="cid:…">` resolves). On success `status` is `Sent` and `providerMessageId` comes from the response `id`.
 
 `ResendNarrowedInput` extends `EmailSendInput` with a single below-baseline field, `idempotencyKey`, which is forwarded as the `Idempotency-Key` request header.
 

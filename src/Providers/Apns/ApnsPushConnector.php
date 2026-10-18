@@ -44,6 +44,7 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
     private const JWT_CACHE_TTL_SECONDS = 50 * 60;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly ApnsConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -57,18 +58,22 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
     {
         $jwt = $this->getJwtViaHookOrFresh();
 
-        $wireBody = $this->buildApnsBody($input);
-        $connectorHeaders = $this->buildApnsHeaders($input, $jwt);
-
-        $merged = Passthrough::merge(
-            ['body' => $wireBody, 'headers' => $connectorHeaders, 'query' => []],
-            $input->_passthrough,
-        );
-
+        // The push type is read from the MERGED body and headers, so an alert
+        // supplied via `aps` or `_passthrough`, or a caller's own
+        // `apns-push-type` header, decides it — the headers are built only
+        // after the body merge, and the background rules follow the type that
+        // is actually sent.
         /** @var array<string,mixed> $mergedBody */
-        $mergedBody = $merged['body'];
+        $mergedBody = Passthrough::merge(['body' => $this->buildApnsBody($input)], $input->_passthrough)['body'];
+        $mergedBody['aps'] = self::normalizeAps($mergedBody['aps'] ?? null);
+        $pushType = $this->resolvePushType($input, $mergedBody['aps']);
+        $mergedBody = self::shapeAps($mergedBody, $pushType);
+
         /** @var array<string,string> $mergedHeaders */
-        $mergedHeaders = $merged['headers'];
+        $mergedHeaders = Passthrough::merge(
+            ['headers' => $this->buildApnsHeaders($input, $jwt, $pushType)],
+            $input->_passthrough,
+        )['headers'];
 
         $host = $this->config->production
             ? 'api.push.apple.com'
@@ -255,12 +260,18 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
         $narrowed = $input instanceof ApnsPushSendInput ? $input : null;
         $apsOverride = $narrowed?->aps;
 
-        $hasAlert = ($input->title ?? '') !== '' || ($input->body ?? '') !== '' || (is_array($apsOverride) && isset($apsOverride['alert']));
-        if ($hasAlert) {
-            $alert = [];
-            if (is_array($apsOverride) && isset($apsOverride['alert']) && is_array($apsOverride['alert'])) {
-                $alert = $apsOverride['alert'];
-            }
+        // Apple: `alert` is "Dictionary (or String)". A string alert is sent
+        // as-is; combined with a typed title/body it becomes the dictionary's
+        // `body`, which the typed fields then overlay.
+        $overrideAlert = is_array($apsOverride) ? ($apsOverride['alert'] ?? null) : null;
+        $hasTypedText = ($input->title ?? '') !== '' || ($input->body ?? '') !== '';
+        if ($hasTypedText) {
+            $alert = match (true) {
+                is_array($overrideAlert) => $overrideAlert,
+                $overrideAlert instanceof \stdClass => get_object_vars($overrideAlert),
+                is_string($overrideAlert) && $overrideAlert !== '' => ['body' => $overrideAlert],
+                default => [],
+            };
             if (($input->title ?? '') !== '') {
                 $alert['title'] = $input->title;
             }
@@ -268,6 +279,8 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
                 $alert['body'] = $input->body;
             }
             $aps['alert'] = $alert;
+        } elseif ($overrideAlert !== null && $overrideAlert !== '' && $overrideAlert !== []) {
+            $aps['alert'] = $overrideAlert;
         }
 
         if ($narrowed !== null) {
@@ -305,15 +318,102 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
     }
 
     /**
+     * The caller's push type wins — a `_passthrough` `apns-push-type` header
+     * (matched case-insensitively, as HTTP header names are), else the typed
+     * `apnsPushType`. Otherwise Apple's definition decides: `alert` is "The
+     * push type for notifications that trigger a user interaction—for
+     * example, an alert, badge, or sound", so any of those keys makes it
+     * `alert`; only an `aps` without them is a `background` push.
+     *
+     * @param array<string,mixed> $aps
+     */
+    private function resolvePushType(PushSendInput $input, array $aps): string
+    {
+        $override = self::headerValue($input->_passthrough['headers'] ?? [], 'apns-push-type');
+        if ($override !== null) {
+            return $override;
+        }
+        if ($input instanceof ApnsPushSendInput && $input->apnsPushType !== null) {
+            return $input->apnsPushType;
+        }
+        foreach (['alert', 'badge', 'sound'] as $key) {
+            if (isset($aps[$key])) {
+                return 'alert';
+            }
+        }
+
+        return 'background';
+    }
+
+    /**
+     * A caller header, matched case-insensitively. Passthrough headers may
+     * carry scalars other than strings; they are compared as sent.
+     *
+     * @param array<array-key,mixed> $headers
+     */
+    private static function headerValue(array $headers, string $name): ?string
+    {
+        foreach ($headers as $key => $value) {
+            if (strcasecmp((string) $key, $name) === 0 && is_scalar($value) && (string) $value !== '') {
+                return (string) $value;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * `aps` as an array whatever form the caller used — a `stdClass` from
+     * `_passthrough` must be inspected, not replaced — with an empty `alert`
+     * removed, so `"alert":[]` (an invalid alert) is never sent.
+     *
+     * @return array<string,mixed>
+     */
+    private static function normalizeAps(mixed $aps): array
+    {
+        if ($aps instanceof \stdClass) {
+            $aps = get_object_vars($aps);
+        }
+        if (!is_array($aps)) {
+            return [];
+        }
+        $alert = $aps['alert'] ?? null;
+        if ($alert === null || $alert === [] || $alert === '' || ($alert instanceof \stdClass && get_object_vars($alert) === [])) {
+            unset($aps['alert']);
+        }
+
+        return $aps;
+    }
+
+    /**
+     * Apple, "Pushing background updates to your app": a background push is
+     * "a remote notification with an `aps` dictionary that includes only the
+     * `content-available` key", so the key is added when missing. An empty
+     * `aps` must still encode as a JSON object, never `[]`.
+     *
+     * @param array<string,mixed> $body
+     *
+     * @return array<string,mixed>
+     */
+    private static function shapeAps(array $body, string $pushType): array
+    {
+        $aps = self::normalizeAps($body['aps'] ?? null);
+        if ($pushType === 'background' && !array_key_exists('content-available', $aps)) {
+            $aps['content-available'] = 1;
+        }
+        $body['aps'] = $aps === [] ? new \stdClass() : $aps;
+
+        return $body;
+    }
+
+    /**
      * @return array<string,string>
      */
-    private function buildApnsHeaders(PushSendInput $input, string $jwt): array
+    private function buildApnsHeaders(PushSendInput $input, #[\SensitiveParameter] string $jwt, string $pushType): array
     {
         $narrowed = $input instanceof ApnsPushSendInput ? $input : null;
 
         $topic = $narrowed->apnsTopic ?? $this->config->bundleId;
-        $pushType = $narrowed->apnsPushType
-            ?? ((($input->title ?? '') !== '' || ($input->body ?? '') !== '') ? 'alert' : 'background');
 
         $headers = [
             'authorization'   => 'bearer ' . $jwt,
@@ -322,6 +422,11 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
             'content-type'    => 'application/json',
         ];
 
+        // Apple: for `background`, "Always use priority `5`. Using priority
+        // `10` is an error." — and an omitted header means 10.
+        if ($pushType === 'background') {
+            $headers['apns-priority'] = '5';
+        }
         if ($narrowed !== null) {
             if ($narrowed->apnsPriority !== null) {
                 $headers['apns-priority'] = (string) $narrowed->apnsPriority;
@@ -350,6 +455,12 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
         }
 
         $message = $reason !== '' ? $reason : "APNs HTTP {$statusCode}";
+        if ($reason === 'TooManyProviderTokenUpdates') {
+            // Apple: "Update the authentication token no more than once every
+            // 20 minutes." Without a tokenCache every send signs a new token,
+            // so a retry fails the same way — it is a configuration error.
+            $message .= ': supply ApnsConfig tokenCache; APNs allows one new provider token per 20 minutes';
+        }
 
         $providerCode = $this->classifyError($statusCode, $reason);
 
@@ -391,9 +502,11 @@ final class ApnsPushConnector extends BaseConnector implements PushConnectorInte
             return ProviderCode::InvalidRequest;
         }
         if ($statusCode === 429) {
-            return ProviderCode::RateLimited;
+            return $reason === 'TooManyProviderTokenUpdates'
+                ? ProviderCode::AuthFailed
+                : ProviderCode::RateLimited;
         }
-        if ($statusCode === 500 || $statusCode === 503) {
+        if ($statusCode >= 500) {
             return ProviderCode::ProviderUnavailable;
         }
 

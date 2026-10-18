@@ -8,10 +8,14 @@ use Thinwrap\Notifications\DTO\Email\EmailAttachment;
 use Thinwrap\Notifications\DTO\Email\EmailSendInput;
 
 /**
- * Postmark-specific narrowed input. Documents Postmark-only fields routed via
- * `_passthrough` at v1.0 (`MessageStream`, `TemplateId`, `TemplateAlias`,
- * `TemplateModel`, `Metadata`, `TrackOpens`, `TrackLinks`). These are NOT first
- * -class fields per the ≥90%-of-providers baseline rule.
+ * Postmark-specific narrowed input (below the ≥90%-of-providers baseline).
+ * Each field is sent under its Postmark name: `messageStream` →
+ * `MessageStream` (beats `config.messageStream`), `metadata` → `Metadata`,
+ * `trackOpens` → `TrackOpens`, `trackLinks` → `TrackLinks`, and `templateId`
+ * / `templateAlias` / `templateModel` → `TemplateId` / `TemplateAlias` /
+ * `TemplateModel`, which switch the send to `POST /email/withTemplate`
+ * (the template then supplies Subject and body). `_passthrough.body` still
+ * wins on conflict.
  *
  * @phpstan-type TemplateModel array<string,mixed>
  * @phpstan-type Metadata array<string,string>

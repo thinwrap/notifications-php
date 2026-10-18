@@ -44,6 +44,7 @@ final class D7networksSmsConnector extends BaseConnector implements SmsConnector
     private const ENDPOINT = 'https://api.d7networks.com/messages/v1/send';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly D7networksConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

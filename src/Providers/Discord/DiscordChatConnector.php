@@ -33,6 +33,7 @@ final class DiscordChatConnector extends BaseConnector implements ChatConnectorI
     public readonly string $id;
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly DiscordConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

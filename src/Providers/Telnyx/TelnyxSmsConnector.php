@@ -32,14 +32,55 @@ final class TelnyxSmsConnector extends BaseConnector implements SmsConnectorInte
 
     private const ENDPOINT = 'https://api.telnyx.com/v2/messages';
 
-    /** @var list<string> */
-    private const INVALID_RECIPIENT_CODES = [
-        'to_number_invalid',
-        'messaging_profile_id_not_found',
-        'no_to_number_provided',
+    /**
+     * Telnyx `errors[].code` (a numeric string) for the synchronous send path:
+     * the 403xx messaging API errors plus the platform codes from the
+     * api-errors page. The 400xx codes are delivery errors that arrive only in
+     * the `message.finalized` webhook, never in this response.
+     *
+     * @var array<int,ProviderCode>
+     */
+    private const ERROR_CODES = [
+        40300 => ProviderCode::InvalidRecipient,  // Blocked due to STOP message
+        40309 => ProviderCode::InvalidRecipient,  // invalid destination region
+        40310 => ProviderCode::InvalidRecipient,  // Invalid 'to' address
+        10009 => ProviderCode::AuthFailed,        // Authentication failed
+        10010 => ProviderCode::AuthFailed,        // Authorization failed
+        20001 => ProviderCode::AuthFailed,        // Invalid API Key secret
+        20006 => ProviderCode::AuthFailed,        // Expired access token
+        40311 => ProviderCode::AuthFailed,        // Invalid messaging profile secret
+        40313 => ProviderCode::AuthFailed,        // Missing messaging profile secret
+        10011 => ProviderCode::RateLimited,       // Too many requests
+        40318 => ProviderCode::RateLimited,       // Message queue full
+        40301 => ProviderCode::InvalidRequest,
+        40302 => ProviderCode::InvalidRequest,
+        40303 => ProviderCode::InvalidRequest,
+        40304 => ProviderCode::InvalidRequest,
+        40305 => ProviderCode::InvalidRequest,    // Invalid 'from' address
+        40306 => ProviderCode::InvalidRequest,
+        40307 => ProviderCode::InvalidRequest,
+        40308 => ProviderCode::InvalidRequest,
+        40314 => ProviderCode::InvalidRequest,    // Messaging disabled on account
+        40316 => ProviderCode::InvalidRequest,    // No content provided for message
+        40317 => ProviderCode::InvalidRequest,
+        40319 => ProviderCode::InvalidRequest,
+        40320 => ProviderCode::InvalidRequest,
+        40321 => ProviderCode::InvalidRequest,
+        40322 => ProviderCode::InvalidRequest,
+        40323 => ProviderCode::InvalidRequest,
+        40324 => ProviderCode::InvalidRequest,
+        40325 => ProviderCode::InvalidRequest,
+        40328 => ProviderCode::InvalidRequest,
+        40331 => ProviderCode::InvalidRequest,
+        40333 => ProviderCode::InvalidRequest,
+        10002 => ProviderCode::InvalidRequest,    // Invalid phone number (see /to below)
+        10004 => ProviderCode::InvalidRequest,    // Missing required parameter
+        10015 => ProviderCode::InvalidRequest,    // Bad Request
+        20100 => ProviderCode::InvalidRequest,    // Insufficient Funds
     ];
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly TelnyxConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,
@@ -148,6 +189,7 @@ final class TelnyxSmsConnector extends BaseConnector implements SmsConnectorInte
 
         $errorCode = null;
         $errorDetail = null;
+        $pointer = null;
         if (
             is_array($body)
             && isset($body['errors'])
@@ -156,20 +198,26 @@ final class TelnyxSmsConnector extends BaseConnector implements SmsConnectorInte
             && is_array($body['errors'][0])
         ) {
             $first = $body['errors'][0];
-            $errorCode = isset($first['code']) && is_string($first['code']) ? $first['code'] : null;
+            $errorCode = isset($first['code']) && (is_string($first['code']) || is_int($first['code']))
+                ? (string) $first['code']
+                : null;
+            $pointer = isset($first['source']) && is_array($first['source']) && isset($first['source']['pointer']) && is_string($first['source']['pointer'])
+                ? $first['source']['pointer']
+                : null;
             $errorDetail = isset($first['detail']) && is_string($first['detail'])
                 ? $first['detail']
                 : (isset($first['title']) && is_string($first['title']) ? $first['title'] : null);
         }
 
+        // The vendor code wins; a bare 400/422 is generic request validation.
+        // "Invalid phone number" is the recipient's only when it points at /to.
         $providerCode = match (true) {
+            $errorCode === '10002' && $pointer === '/to'         => ProviderCode::InvalidRecipient,
+            $errorCode !== null && ctype_digit($errorCode) && isset(self::ERROR_CODES[(int) $errorCode])
+                                                                 => self::ERROR_CODES[(int) $errorCode],
             $statusCode === 401 || $statusCode === 403           => ProviderCode::AuthFailed,
             $statusCode === 429                                  => ProviderCode::RateLimited,
             $statusCode >= 500                                   => ProviderCode::ProviderUnavailable,
-            // Only a recipient-specific vendor code yields InvalidRecipient; a
-            // bare 422 is generic request-validation and falls to InvalidRequest.
-            $errorCode !== null && in_array($errorCode, self::INVALID_RECIPIENT_CODES, true)
-                                                                 => ProviderCode::InvalidRecipient,
             $statusCode >= 400                                   => ProviderCode::InvalidRequest,
             default                                              => ProviderCode::Unknown,
         };

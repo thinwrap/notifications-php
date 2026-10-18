@@ -5,7 +5,78 @@ All notable changes to `thinwrap/notifications` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] — 2026-10-18
+
+### Added
+
+- Twilio: `TwilioConfig` `edge` (`TwilioEdge`) picks the edge location; ie1 and au1 default to dublin and sydney.
+- Sinch: `SinchRegion` `Au`, `Br` and `Ca`.
+- SendGrid, Mailgun, Postmark, Mailtrap and MailerSend narrowed inputs send their typed fields to the vendor.
+- Postmark: a `TemplateId` / `TemplateAlias` send goes to `/email/withTemplate`.
+- Configs, and connectors holding them, show secrets as `[redacted]` under `var_dump` / `print_r`.
+- Mailgun `oTracking` / `oTrackingClicks` accept `'htmlonly'`.
+
+### Changed
+
+- SES sends attachments (inline included) and custom headers through `Content.Simple`, so SES builds the MIME.
+- SES rejects headers it sets itself and tags outside its charset before sending; non-ASCII header values go as RFC 2047 encoded-words.
+- Resend rejects tags outside its charset before sending.
+- Mailtrap drops `subject` / `text` / `html` on a `template_uuid` send and rejects `category` with it.
+- APNs `TooManyProviderTokenUpdates` is `auth_failed` and names `tokenCache`.
+- **Breaking:** Mailgun sends an inline image's part filename as its `contentId`, since Mailgun derives the Content-ID from it.
+- **Breaking:** Pusher Beams follows its publish API table: 422 is `invalid_request` (was `invalid_recipient`), 402 `rate_limited`, 403 `auth_failed`, 404 `invalid_request`.
+- **Breaking:** a header value that is not a string or scalar is `invalid_request`; scalars are sent as strings.
+- **Behaviour change:** OneSignal: a 200 with a notification `id` is a success even when `errors` lists invalid recipients (they stay on `raw`); it used to throw `invalid_recipient`. 403 is `auth_failed`.
+- **Behaviour change:** Postmark 300 is `invalid_recipient` only when the message names a quoted `'To'` / `'Cc'` / `'Bcc'` field; other 300s (e.g. "Zero recipients specified", a `'From'` or `'Reply-To'` address) are now `invalid_request`.
+- Postmark: an empty `TemplateAlias` does not route, and a non-numeric `templateId` is sent as `TemplateAlias`.
+- SendGrid rejects more than 10 categories or one over 255 characters (counted as characters, not bytes), and de-duplicates them by exact string.
+- MailerSend `settings` accepts its snake_case keys too and rejects non-boolean values and unknown keys; a `personalization` entry without `data` is `invalid_request`.
+- FCM rejects a message with no token, topic, condition or fid before sending.
+- Postmark rejects `templateId` with `templateAlias`, and a `trackLinks` outside its enum; Mailgun rejects an unknown tracking string.
+- SparkPost 420 (sending limit) is `rate_limited`; Mailgun 403 is `auth_failed`.
+- Telegram 403 is `invalid_recipient` and 404 is `auth_failed`.
+- Postmark, Telnyx and WhatsApp map the vendor's documented error codes.
+- SES reads the error code from `x-amzn-ErrorType`; `MessageRejected` is `invalid_request`, `SendingPausedException` is `auth_failed`.
+
+### Deprecated
+
+- `TwilioRegion` `Us2`, `Br1`, `De1`, `Jp1` and `Sg1` (edge locations, not REST regions); they are rejected before sending.
+- `MailersendNarrowedInput::$variables`; MailerSend removed it and it is not sent.
+
+### Fixed
+
+- A header with CR/LF (e.g. an API key with a trailing newline) or an invalid URL is an `invalid_request` `ConnectorError` that never carries the value.
+- Config values placed in a URL path (Sinch `servicePlanId`, Twilio SID, Plivo auth id, FCM project, WhatsApp ids, Telegram token, Beams instance) are path-escaped.
+- Twilio ie1/au1 use the current `api.{edge}.{region}.twilio.com` hosts; a deprecated region is rejected even with an `edge`.
+- SES, SNS and Pusher Beams reject a region / instance id that is not a host label before sending.
+- Infobip rejects a `baseUrl` that is not a bare hostname before sending.
+- Sender display names are quoted or RFC 2047-encoded in SES, Resend, Postmark and Mailgun `from`.
+- Resend sends `content_id`; SparkPost names inline images by Content-ID and always sends `type`; MailerSend no longer sends a nonexistent `content_type`.
+- Mailgun sends passthrough maps as JSON and never emits a header twice.
+- Mailtrap treats an empty `inboxId` as missing.
+- APNs infers the push type from the final payload (`alert` for an alert, badge or sound) or the caller's `apns-push-type` header, sends background pushes with priority 5 and `content-available`, keeps a typed string `aps.alert`, and never sends `"aps":[]` or `"alert":[]`.
+- Pusher Beams data-only pushes send no empty `notification` / `alert`, and iOS receives `data`.
+- FCM drops `token` when a topic, condition or fid is given, and maps OAuth 429/5xx to `rate_limited` / `provider_unavailable`.
+- APNs, FCM and Pusher Beams map every 5xx to `provider_unavailable`.
+- A missing PSR-17 factory is a `ConnectorError` instead of a discovery exception.
+- A header with NUL is rejected like CR/LF, and a scalar header value no longer raises a `TypeError`.
+- Region, host and id validators match the whole value, so a trailing newline is `invalid_request`.
+- Empty object fields (Postmark `TemplateModel`/`Metadata`, SendGrid settings and template data, Mailtrap variables, MailerSend `data`, Mailgun `t:variables`) are sent as `{}`, not `[]`.
+- SendGrid, Mailgun and MailerSend template sends leave out an empty `subject`, so the template's subject applies.
+- Mailgun `vCustomVars` map values are sent as JSON.
+- MS Teams: a Workflows webhook's empty `202 Accepted` counts as success instead of a `provider_unavailable` error.
+- OneSignal: `os_v2_` App API keys use `api.onesignal.com` with `Authorization: Key`, and passthrough targeting replaces the default recipient.
+- WonderPush: `data`, `sound`, `badge` and `subtitle` go to `push.custom` / `alert.ios` / `alert.android` as the notification object defines them.
+- Infobip: a 200 with a `REJECTED` message status throws; `sendAt`, `language` and `validityPeriod` follow the v2 message shape.
+- MailerSend: an `ALL_SUPPRESSED` 202 throws `invalid_recipient`, and baseline `headers` are sent.
+- Credentials no longer appear in exception stack-trace arguments (`#[\SensitiveParameter]`).
+
+### Documentation
+
+- The error contract is stated precisely: native `\TypeError` / `\ValueError` for what PHP enforces, `ConnectorError` for everything else.
+- APNs `tokenCache` is required in production.
+- README: Symfony HttpClient's cross-host redirect behaviour; the Sinch constructor order; Telnyx/Plivo/WhatsApp config fields; WonderPush Bearer auth.
+- The Packagist dist no longer contains `tests/`, `.ai/` or the repo tooling files.
 
 ## [1.1.1] — 2026-08-08
 

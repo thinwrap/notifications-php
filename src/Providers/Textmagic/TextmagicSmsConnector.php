@@ -34,6 +34,7 @@ final class TextmagicSmsConnector extends BaseConnector implements SmsConnectorI
     private const ENDPOINT = 'https://rest.textmagic.com/api/v2/messages';
 
     public function __construct(
+        #[\SensitiveParameter]
         private readonly TextmagicConfig $config,
         ?ClientInterface $client = null,
         ?RequestFactoryInterface $requestFactory = null,

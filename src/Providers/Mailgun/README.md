@@ -31,15 +31,17 @@ API key from Mailgun dashboard. HTTP Basic auth as `api:<key>`. EU endpoint at `
 
 ## Narrowed input augmentations
 
-Standard email input applies. The body is sent as `application/x-www-form-urlencoded` (no attachments) or `multipart/form-data` (with attachments): `from` (+ config `senderName`, composed as `Name <addr>`) → `from`, `to` → `to`, `subject` → `subject`, `html`/`text` → `html`/`text`, `cc`/`bcc` → comma-joined `cc`/`bcc`, `replyTo` → `h:Reply-To`, each `headers` entry → `h:<Name>`, and `tags` → repeated `o:tag` fields (**max 3**; extras truncated, emitted in both transport paths). Attachments become `attachment` parts, or `inline` when `contentId` is set. `status` is `Queued` (Mailgun acknowledges queue acceptance, not delivery); `providerMessageId` comes from the response `id`.
+Standard email input applies. The body is sent as `application/x-www-form-urlencoded` (no attachments) or `multipart/form-data` (with attachments): `from` (+ config `senderName`, composed as `Name <addr>` — quoted when the name holds RFC 5322 specials, RFC 2047 encoded-words when it is non-ASCII) → `from`, `to` → `to`, `subject` → `subject`, `html`/`text` → `html`/`text`, `cc`/`bcc` → comma-joined `cc`/`bcc`, `replyTo` → `h:Reply-To`, each `headers` entry → `h:<Name>` (header names match case-insensitively, so there is only ever one field per header: `_passthrough.body` beats `replyTo`, which beats `headers`), and `tags` → repeated `o:tag` fields (**max 3**; extras truncated, emitted in both transport paths). Attachments become `attachment` parts, or `inline` when `contentId` is set. Mailgun takes an inline image's Content-ID from the part's filename, so an inline part is sent with `filename = contentId` (reference it as `<img src="cid:{contentId}">`); keep an extension in the `contentId` (e.g. `logo.png`) if you want mail clients to see one. `status` is `Queued` (Mailgun acknowledges queue acceptance, not delivery); `providerMessageId` comes from the response `id`.
 
-Provider-specific form fields ride verbatim in `_passthrough['body']` (no casing transform; Mailgun's wire keys are literal): e.g. `o:tag`, `o:deliverytime`, `o:tracking`, `v:<name>`, `template`, `t:variables`, `h:X-Mailgun-Variables`.
+`MailgunNarrowedInput` adds typed Mailgun options: `oTracking` / `oTrackingClicks` / `oTrackingOpens` / `oDkim` → `o:tracking` / `o:tracking-clicks` / `o:tracking-opens` / `o:dkim` (`yes` or `no`); `oTestmode: true` → `o:testmode=yes` (Mailgun's only value); `oDeliverytime` (RFC 2822, e.g. `Fri, 14 Oct 2011 12:00:00 +0000`) → `o:deliverytime`; each `vCustomVars` entry → `v:<name>`; `template` → `template` (an empty `subject` is then left out so the template's stored subject applies — Mailgun lets a sent subject override it); `tVariables` → `t:variables` (JSON-encoded, which Mailgun recommends over `v:` for templates); `tVersion` → `t:version`; `tText` (`'yes'`) → `t:text`.
+
+Other provider-specific form fields ride verbatim in `_passthrough['body']` (no casing transform; Mailgun's wire keys are literal) and win over the typed fields: e.g. `o:tag`, `o:tracking`, `v:<name>`, `h:X-My-Header`. A list becomes repeated fields; an associative array (e.g. `t:variables`) is sent as compact JSON.
 
 ## Error mapping
 
 | Vendor HTTP | Vendor signal | `ProviderCode` |
 |---|---|---|
-| 401 / 402 | (any) | `AuthFailed` |
+| 401 / 402 / 403 ("Valid credentials but access denied") | (any) | `AuthFailed` |
 | 400 | `message` matches `not a valid email` / `invalid recipient` / `invalid address` | `InvalidRecipient` |
 | 400 | (other) | `InvalidRequest` |
 | 404 / 413 | (any) | `InvalidRequest` |

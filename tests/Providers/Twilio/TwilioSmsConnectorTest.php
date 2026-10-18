@@ -66,11 +66,31 @@ final class TwilioSmsConnectorTest extends TestCase
         $this->assertSame('https://api.twilio.com/2010-04-01/Accounts/ACsid/Messages.json', (string) $request->getUri());
     }
 
-    public function testRegionalHost(): void
+    /**
+     * Twilio legacy-regions page: "The `api.REGION.twilio.com` domain pattern
+     * (e.g., `api.ie1.twilio.com`) will stop working on April 28, 2026"; the
+     * current hosts are `api.dublin.ie1.twilio.com` / `api.sydney.au1.twilio.com`,
+     * and "`api.us1.twilio.com` remains valid". Non-US format is
+     * `PRODUCT.EDGE_LOCATION.PROCESSING_REGION.twilio.com`.
+     *
+     * @return iterable<string,array{TwilioRegion|null,\Thinwrap\Notifications\Providers\Twilio\TwilioEdge|null,string}>
+     */
+    public static function regionHosts(): iterable
+    {
+        yield 'default is us1 on api.twilio.com' => [null, null, 'api.twilio.com'];
+        yield 'us1 without edge' => [TwilioRegion::Us1, null, 'api.twilio.com'];
+        yield 'us1 with an edge' => [TwilioRegion::Us1, \Thinwrap\Notifications\Providers\Twilio\TwilioEdge::Frankfurt, 'api.frankfurt.us1.twilio.com'];
+        yield 'ie1 defaults to dublin' => [TwilioRegion::Ie1, null, 'api.dublin.ie1.twilio.com'];
+        yield 'au1 defaults to sydney' => [TwilioRegion::Au1, null, 'api.sydney.au1.twilio.com'];
+        yield 'edge overrides the default' => [TwilioRegion::Ie1, \Thinwrap\Notifications\Providers\Twilio\TwilioEdge::Frankfurt, 'api.frankfurt.ie1.twilio.com'];
+    }
+
+    #[DataProvider('regionHosts')]
+    public function testRegionalHost(?TwilioRegion $region, ?\Thinwrap\Notifications\Providers\Twilio\TwilioEdge $edge, string $host): void
     {
         $this->mockClient->addResponse($this->successResponse());
         $connector = new TwilioSmsConnector(
-            new TwilioConfig(accountSid: 'ACsid', authToken: 'tok', from: '+15550000000', region: TwilioRegion::Ie1),
+            new TwilioConfig(accountSid: 'ACsid', authToken: 'tok', from: '+15550000000', region: $region, edge: $edge),
             $this->mockClient,
             $this->factory,
             $this->factory,
@@ -78,7 +98,64 @@ final class TwilioSmsConnectorTest extends TestCase
         $connector->send($this->basicInput());
 
         $request = $this->mockClient->getRequests()[0];
-        $this->assertSame('https://api.ie1.twilio.com/2010-04-01/Accounts/ACsid/Messages.json', (string) $request->getUri());
+        $this->assertSame("https://{$host}/2010-04-01/Accounts/ACsid/Messages.json", (string) $request->getUri());
+    }
+
+    /**
+     * @return iterable<string,array{TwilioRegion}>
+     */
+    public static function edgeOnlyRegions(): iterable
+    {
+        // legacy-regions: br1/de1/jp1/sg1/us2 "process in US1 — use api.twilio.com".
+        foreach ([TwilioRegion::Us2, TwilioRegion::Br1, TwilioRegion::De1, TwilioRegion::Jp1, TwilioRegion::Sg1] as $region) {
+            yield $region->value => [$region];
+        }
+    }
+
+    #[DataProvider('edgeOnlyRegions')]
+    public function testEdgeOnlyRegionIsRejectedBeforeAnyCredentialedRequest(TwilioRegion $region): void
+    {
+        foreach ([null, \Thinwrap\Notifications\Providers\Twilio\TwilioEdge::Umatilla] as $edge) {
+            $this->assertRejectedBeforeSending($region, $edge);
+        }
+    }
+
+    private function assertRejectedBeforeSending(TwilioRegion $region, ?\Thinwrap\Notifications\Providers\Twilio\TwilioEdge $edge): void
+    {
+        $connector = new TwilioSmsConnector(
+            new TwilioConfig(accountSid: 'ACsid', authToken: 'tok', from: '+15550000000', region: $region, edge: $edge),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        );
+
+        try {
+            $connector->send($this->basicInput());
+            $this->fail('Expected ConnectorError');
+        } catch (ConnectorError $e) {
+            $this->assertSame(ProviderCode::InvalidRequest, $e->providerCode);
+        }
+        $this->assertCount(0, $this->mockClient->getRequests());
+    }
+
+    public function testAccountSidIsPathEscaped(): void
+    {
+        $this->mockClient->addResponse($this->successResponse());
+        (new TwilioSmsConnector(
+            new TwilioConfig(accountSid: 'AC1/../x?', authToken: 'tok', from: '+15550000000'),
+            $this->mockClient,
+            $this->factory,
+            $this->factory,
+        ))->send($this->basicInput());
+
+        $this->assertSame('https://api.twilio.com/2010-04-01/Accounts/AC1%2F..%2Fx%3F/Messages.json', (string) $this->mockClient->getRequests()[0]->getUri());
+    }
+
+    /** The edge list is closed: an unknown edge cannot be built, like an unknown region. */
+    public function testUnknownEdgeIsANativeValueError(): void
+    {
+        $this->expectException(\ValueError::class);
+        \Thinwrap\Notifications\Providers\Twilio\TwilioEdge::from('evil.example');
     }
 
     public function testMediaUrlMultiValueFormEncoding(): void

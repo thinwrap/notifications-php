@@ -70,8 +70,8 @@ $vonage->send($sameInput);
 
 ## Bring your own PSR-18 client
 
-Inject any PSR-18 client through the `client` parameter on the `*Config` DTO — useful
-for tracing, mocking, or proxying through `symfony/http-client`.
+Inject any PSR-18 client as the facade constructor's third argument (`$client`, see the
+example below) — useful for tracing, mocking, or proxying through `symfony/http-client`.
 
 **Contract: a non-2xx must be RETURNED, not thrown.** PSR-18 requires this and compliant
 clients honour it, so each connector can map the status to a `ProviderCode`
@@ -94,7 +94,9 @@ $tracingClient = new class(new Client()) implements ClientInterface {
     public function __construct(private Client $inner) {}
     public function sendRequest(RequestInterface $req): ResponseInterface
     {
-        error_log('→ ' . $req->getMethod() . ' ' . (string) $req->getUri());
+        // Log the host, not the full URL: for Telegram and the webhook
+        // connectors the path is the credential.
+        error_log('→ ' . $req->getMethod() . ' ' . $req->getUri()->getHost());
         return $this->inner->sendRequest($req);
     }
 };
@@ -109,18 +111,36 @@ $email = new Email(
 `php-http/discovery` auto-detects an installed PSR-18 client (Guzzle, Symfony HttpClient,
 Buzz, etc.) when no `$client` is passed to the facade constructor.
 
+**Redirects.** No vendor API here answers a send with a redirect, so the connectors never
+need one followed. Guzzle's PSR-18 `sendRequest()` does not follow redirects. Symfony
+HttpClient — which discovery picks first when it is installed — follows up to 20 by
+default, and on a redirect to another host it drops only `Authorization` and `Cookie`:
+credential headers such as `X-Postmark-Server-Token`, Brevo `api-key`, Scaleway /
+Rocket.Chat `X-Auth-Token` and `X-Amz-Security-Token` would be sent to the new host (for
+example a self-hosted Rocket.Chat behind an SSO proxy). Pass a client with redirects off,
+e.g. `new \Symfony\Component\HttpClient\Psr18Client(\Symfony\Component\HttpClient\HttpClient::create(['max_redirects' => 0]))`,
+or Guzzle's PSR-18 client.
+
 The wrapper holds no state — no token cache, no connection pool, no retry buffer. The
-**optional** `tokenCache` hook on `FcmConfig` and `ApnsConfig` (the only two connectors
-with short-lived signed tokens) lets the consumer amortize signing cost; the hook owns
-the state, not the wrapper. See
+`tokenCache` hook on `FcmConfig` and `ApnsConfig` (the only two connectors with
+short-lived signed tokens) lets the consumer reuse a token; the hook owns the state, not
+the wrapper. It is optional for FCM but **required for APNs in production**: APNs rejects a
+new provider token more than once every 20 minutes (`429 TooManyProviderTokenUpdates`). See
 [`src/Providers/Fcm/README.md`](src/Providers/Fcm/README.md) and
 [`src/Providers/Apns/README.md`](src/Providers/Apns/README.md) for hook shape.
 
 ## Error handling
 
-Every failure surfaces as `ConnectorError` with a typed `ProviderCode`. Compose your own
-retry strategy from `$e->providerCode` and `$e->cause` (which carries the raw
-`Retry-After` header where the vendor sets one). The wrapper performs no automatic retry.
+A failed send surfaces as `ConnectorError` with a typed `ProviderCode`: every vendor
+rejection and transport failure, request data a connector rejects before sending, and
+facade/config misuse the library checks itself (a provider id outside the facade's
+channel, a config class that doesn't match the provider id, an invalid config value such
+as an edge-only Twilio region). What PHP itself enforces stays native: an argument of the
+wrong type is a `\TypeError`, and building a backed enum from an unknown string
+(`TwilioRegion::from('xx')`) is a `\ValueError` — both happen in your code, before the
+library is called. Compose your own retry strategy from `$e->providerCode` and `$e->cause`
+(which carries the raw `Retry-After` header where the vendor sets one). The wrapper
+performs no automatic retry.
 
 ```php
 use Thinwrap\Notifications\Exception\ConnectorError;
@@ -183,8 +203,8 @@ $email->send(new EmailSendInput(
     _passthrough: [
         'body' => [
             // SendGrid-specific — forwarded into v3/mail/send body verbatim
-            'dynamic_template_data' => ['firstName' => 'Alice'],
-            'mail_settings'         => ['sandbox_mode' => ['enable' => true]],
+            'mail_settings'     => ['sandbox_mode' => ['enable' => true]],
+            'tracking_settings' => ['click_tracking' => ['enable' => false]],
         ],
     ],
 ));
@@ -197,7 +217,8 @@ Each per-connector README documents vendor-specific `_passthrough` examples.
 When `_passthrough` isn't enough — the provider isn't shipped at all — implement the
 channel's `Contract\*ConnectorInterface` (a single `send()` method over the normalized
 DTOs) and build the facade with `fromConnector()`. You keep the normalized input/result
-shapes and the uniform `ConnectorError` path; only the wire call is yours.
+shapes and the facade; only the wire call is yours — throw `ConnectorError` from it so
+callers keep one error type to catch.
 
 ```php
 use Thinwrap\Notifications\Push;

@@ -39,7 +39,8 @@ Bot token from @BotFather. Token is part of the URL path (`https://api.telegram.
 
 | Vendor HTTP | Vendor signal | `ProviderCode` |
 |---|---|---|
-| 401 / 403 | (any) | `AuthFailed` |
+| 401 (`Unauthorized: invalid token specified`) / 404 (malformed `/bot<token>/` path) | (any) | `AuthFailed` |
+| 403 (bot blocked by the user, user deactivated, bot kicked from or not a member of the chat) | (any) | `InvalidRecipient` |
 | 429 | (any) | `RateLimited` |
 | 400 | `description` matches `chat not found` / `user_id_invalid` / `peer_id_invalid` / `chat_id_invalid` | `InvalidRecipient` |
 | 400 | (other) | `InvalidRequest` |

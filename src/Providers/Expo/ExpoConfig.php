@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Expo;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Stub config for Expo push notifications. Real shape lands in a later release.
  *
@@ -13,5 +15,7 @@ namespace Thinwrap\Notifications\Providers\Expo;
  */
 final readonly class ExpoConfig
 {
-    public function __construct(public ?string $accessToken = null) {}
+    use RedactsSecrets;
+
+    public function __construct(#[\SensitiveParameter] public ?string $accessToken = null) {}
 }

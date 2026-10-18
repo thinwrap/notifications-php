@@ -23,7 +23,7 @@ final readonly class ApnsPushSendInput extends PushSendInput
      * @param string|null $sound
      * @param int|null $ttl                          Computes `apns-expiration` header (epoch seconds = now + ttl).
      * @param string|null $apnsTopic                Overrides `config.bundleId` in the `apns-topic` header.
-     * @param string|null $apnsPushType             Defaults to `'alert'` when title/body present, else `'background'`.
+     * @param string|null $apnsPushType             Otherwise inferred from the final `aps`: `alert` when it has an alert, badge or sound, else `background`.
      * @param int|null $apnsPriority                10 = immediate; 5 = considerate.
      * @param string|null $apnsCollapseId
      * @param int|null $apnsExpiration              Explicit unix-timestamp; otherwise computed from ttl.

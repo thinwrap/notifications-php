@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Thinwrap\Notifications\Providers\Scaleway;
 
+use Thinwrap\Notifications\Util\RedactsSecrets;
+
 /**
  * Scaleway TEM connector configuration. Mirrors TS
  * (`notifications-ts/src/providers/scaleway/scaleway.config.ts`).
@@ -15,7 +17,10 @@ namespace Thinwrap\Notifications\Providers\Scaleway;
  */
 final readonly class ScalewayConfig
 {
+    use RedactsSecrets;
+
     public function __construct(
+        #[\SensitiveParameter]
         public string $secretKey,
         public string $projectId,
         public string $from,
